@@ -38,7 +38,6 @@ def singleFit(xy,cov_xy, t,par_xy, parallax_prior=None):
     invC = np.array( [[cov_xy[:,1], -cov_xy[:,2]],
                       [-cov_xy[:,2], cov_xy[:,0]]]) / det
 
-    print('shapes A, invC',A.shape,invC.shape,xy.shape) ###
     # Now the solution - contract over first two dimensions of A
     alpha = np.einsum("ikm,ijk,jkn",A,invC,A)
     beta = np.einsum("ikm,ijk,kj",A,invC,xy)
