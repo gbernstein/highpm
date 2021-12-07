@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 # Establishes proper motions for stars in the DES footprint
 
@@ -34,12 +33,60 @@ def read_cat_data(filename):
     cat = QTable(cat_data)
     return cat
 
+def arborist(xi,eta):
+    tree = spatial.KDTree(np.array([xi,eta]).transpose())
+    return tree
+
 
 def clean_cat(catname):
     # Removes detections with "FLAGS"!=0 and "IMAFLAGS!=0"
     cleancat = catname[np.logical_and(catname["FLAGS"==0], \
                                       catname["IMAFLAGS_ISO"]==0)]
     return cleancat
+
+
+def gnomonic_plate2sky(xi,eta,ra0,dec0):
+    # Converts plate coordinates (xi,eta)[deg] to sky coordinates (ra,dec)[deg]
+    # assuming (xi,eta) are the gnomonic projections of (ra,dec)
+    # centered at (ra0,dec0)
+
+    xi_rad = xi * np.pi/180.
+    eta_rad = eta * np.pi/180.
+
+    ra0_rad = ra0 * np.pi/180.
+    dec0_rad = dec0 * np.pi/180.
+
+    rho = np.hypot(xi_rad,eta_rad)
+    c = np.arctan(rho)
+
+    ra_rad = ra0_rad+np.arctan(xi_rad*np.sin(c)
+        /(rho*np.cos(dec0_rad)*np.cos(c)-eta_rad*np.sin(dec0_rad)*np.sin(c)))
+
+    dec_rad = np.arcsin(np.cos(c)*np.sin(dec0_rad)
+        +eta_rad*np.sin(c)*np.cos(dec0_rad)/rho)
+
+    ra = ra_rad * 180./np.pi
+    dec = dec_rad * 180./np.pi
+
+    return ra,dec
+
+
+def detections_for_removal(pm_arr,pm_lim,pm_err_lim):
+
+    p_fits = np.vstack(pm_arr[:,0])
+    cov = np.array([np.linalg.inv(i) for i in pm_arr[:,1]])
+
+    pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
+    pmra_err = (cov[:,2,2]*u.arcsec/u.year).to(u.mas/u.year)
+    pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
+    pmdec_err = (cov[:,3,3]*u.arcsec/u.year).to(u.mas/u.year)
+
+    removals = np.concatenate([pm_arr[i][-2] for i in range(len(pm_arr)) \
+        if np.logical_and(abs(pmra_err[i])<pm_err_lim*u.mas/u.year, \
+            abs(pmdec_err[i])<pm_err_lim*u.mas/u.year) \
+        and np.hypot(pmra[i],pmdec[i])<pm_lim*u.mas/u.year])
+
+    return removals
 
 # =============================================================================
 # These functions are from Pedro's code
@@ -83,172 +130,23 @@ def friends_of_friends(list_friends):
 
 # =============================================================================
 
-def multithreader(func,lol,cores=1):
-    # Distributes a function acting on a list of lists to multiple cores
-    pool = Pool(cores)
-    ls_out = pool.map(func,lol)
-    pool.close()
-    pool.join()
-    return ls_out
+
+# =============================================================================
+# Slow mover algorithm
+# =============================================================================
+
+def slow_movers(cat,linklength=0.1/3600.,cores=1):
+    xi = cat['XI']
+    eta = cat['ETA']
+
+    slow_tree = arborist(xi,eta)
+    slow_friends = find_friend(slow_tree,linklength,cores)
+    slow_groups = friends_of_friends(slow_friends)
+    return slow_groups
+
+# =============================================================================
 
 
-def multi_fit5d(fitter,detections_groups,cores=1):
-    # Multithreaded application of a 5D fitter to groups of detections
-    pm_list = multithreader(fitter,detections_groups,cores)
-
-    # Remove fits that return None
-    clean_pm_list = [i for i in pm_list if i!=None]
-    
-    # Convert list to array and discard list
-    clean_pm_arr = np.array(clean_pm_list,dtype=object)
-    clean_pm_list.clear()
-
-    return clean_pm_arr
-
-
-def gnomonic_plate2sky(xi,eta,ra0,dec0):
-    # Converts plate coordinates (xi,eta)[deg] to sky coordinates (ra,dec)[deg]
-    # assuming (xi,eta) are the gnomonic projections of (ra,dec)
-    # centered at (ra0,dec0)
-
-    xi_rad = xi * np.pi/180.
-    eta_rad = eta * np.pi/180.
-
-    ra0_rad = ra0 * np.pi/180.
-    dec0_rad = dec0 * np.pi/180.
-
-    rho = np.hypot(xi_rad,eta_rad)
-    c = np.arctan(rho)
-
-    ra_rad = ra0_rad+np.arctan(xi_rad*np.sin(c)
-            /(rho*np.cos(dec0_rad)*np.cos(c)-eta_rad*np.sin(dec0_rad)*np.sin(c)))
-
-    dec_rad = np.arcsin(np.cos(c)*np.sin(dec0_rad)
-        +eta_rad*np.sin(c)*np.cos(dec0_rad)/rho)
-
-    ra = ra_rad * 180./np.pi
-    dec = dec_rad * 180./np.pi
-
-    return ra,dec
-
-
-def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
-    # Writes a fits table containing data from the proper motion fitting
-
-    if fittype!='fit5d':
-        raise RuntimeError('This fitter is not yet supported')
-
-    if fittype=='fit5d':
-
-        column_names = [
-            'idx',
-            'mtype',
-            'ra',
-            'ra_err',
-            'dec',
-            'dec_err',
-            'pm',
-            'pmra',
-            'pmra_err',
-            'pmdec',
-            'pmdec_err',
-            'parallax',
-            'parallax_err',
-        #     'alpha',
-            'chisqTotal',
-        #     't',
-            'dof',
-            'nClip',
-        #     'members',
-        #     'clipped'
-        ]
-
-        idx   = range(len(pm_arr))
-        ls_mtype = [mtype]*len(pm_arr)
-
-        p_fits = np.vstack(pm_arr[:,0])
-        cov = np.array([np.linalg.inv(i) for i in pm_arr[:,1]])
-
-        xi = np.array((p_fits[:,0]*u.arcsec).to(u.deg))
-        eta = np.array((p_fits[:,1]*u.arcsec).to(u.deg))
-
-        header = read_cat_header(filename)
-
-        ra0 = header['RA0']
-        dec0 = header['DEC0']
-
-        ra,dec = gnomonic_plate2sky(xi,eta,ra0,dec0)*u.deg
-
-        ra_err = (np.sqrt(cov[:,0,0])*u.arcsec).to(u.deg)
-        dec_err = (np.sqrt(cov[:,1,1])*u.arcsec).to(u.deg)
-
-        pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
-        pmra_err = (np.sqrt(cov[:,2,2])*u.arcsec/u.year).to(u.mas/u.year)
-        pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
-        pmdec_err = (np.sqrt(cov[:,3,3])*u.arcsec/u.year).to(u.mas/u.year)
-        pm = np.hypot(pmra,pmdec)
-        parallax = p_fits[:,4]
-        parallax_err = np.sqrt(cov[:,4,4])
-
-        alpha = pm_arr[:,1]
-        chisqTotal = np.array(pm_arr[:,2],dtype=np.float64)
-        t = pm_arr[:,3]
-        dof = np.array(pm_arr[:,4],dtype=np.float64)
-        nClip = np.array(pm_arr[:,5],dtype=np.float64)
-        members = pm_arr[:,6]
-        clipped = pm_arr[:,7]
-
-        data = [
-            idx,
-            ls_mtype,
-            ra,
-            ra_err,
-            dec,
-            dec_err,
-            pm,
-            pmra,
-            pmra_err,
-            pmdec,
-            pmdec_err,
-            parallax,
-            parallax_err,
-        #     alpha,
-            chisqTotal,
-        #     t,
-            dof,
-            nClip,
-        #     members,
-        #     clipped
-        ]
-
-        tbl = QTable(names=column_names,data=data)
-        
-        detection_column_names = [
-            'idx',
-            'detections',
-            'clipped'
-        ]
-
-        detection_tbl = QTable(names=detection_column_names,
-            dtype=['i4','i4','i4'])
-        for i in idx:
-            clipbool = len(members[i])*[False] + len(clipped[i])*[True]
-            detections = np.hstack((members[i],clipped[i]))
-            temp_tbl = QTable(data=[[i]*len(detections),detections,clipbool], 
-                names=detection_column_names,
-                dtype=['i4','i4','i4'])
-            
-            detection_tbl = vstack([detection_tbl,temp_tbl])
-
-        if outputname==None:
-            tbl.write(filename[:-4]+'_'+mtype+'_movers.fits',overwrite=True)
-            detection_tbl.write(filename[:-4]+'_'+mtype+'_detections.fits', \
-                overwrite=True)
-        else:
-            tbl.write(outputname+'.fits',overwrite=True)
-            detection_tbl.write(outputname+'_detections.fits', \
-                overwrite=True)
-    return
 
 # =============================================================================
 # Modest mover algorithm
@@ -452,43 +350,131 @@ def fast_movers(cat,pairlength=60./3600.,linklength=12./3600.,cores=1, \
 
 # =============================================================================
 
-def arborist(xi,eta):
-    tree = spatial.KDTree(np.array([xi,eta]).transpose())
-    return tree
 
 # =============================================================================
-# Slow mover algorithm
+# Fits Table Writer
 # =============================================================================
 
-def slow_movers(cat,linklength=0.1/3600.,cores=1):
-    xi = cat['XI']
-    eta = cat['ETA']
+def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
+    # Writes a fits table containing data from the proper motion fitting
 
-    slow_tree = arborist(xi,eta)
-    slow_friends = find_friend(slow_tree,linklength,cores)
-    slow_groups = friends_of_friends(slow_friends)
-    return slow_groups
+    if fittype!='fit5d':
+        raise RuntimeError('This fitter is not yet supported')
+
+    if fittype=='fit5d':
+
+        column_names = [
+            'idx',
+            'mtype',
+            'ra',
+            'ra_err',
+            'dec',
+            'dec_err',
+            'pm',
+            'pmra',
+            'pmra_err',
+            'pmdec',
+            'pmdec_err',
+            'parallax',
+            'parallax_err',
+        #     'alpha',
+            'chisqTotal',
+        #     't',
+            'dof',
+            'nClip',
+        #     'members',
+        #     'clipped'
+        ]
+
+        idx   = range(len(pm_arr))
+        ls_mtype = [mtype]*len(pm_arr)
+
+        p_fits = np.vstack(pm_arr[:,0])
+        cov = np.array([np.linalg.inv(i) for i in pm_arr[:,1]])
+
+        xi = np.array((p_fits[:,0]*u.arcsec).to(u.deg))
+        eta = np.array((p_fits[:,1]*u.arcsec).to(u.deg))
+
+        header = read_cat_header(filename)
+
+        ra0 = header['RA0']
+        dec0 = header['DEC0']
+
+        ra,dec = gnomonic_plate2sky(xi,eta,ra0,dec0)*u.deg
+
+        ra_err = (np.sqrt(cov[:,0,0])*u.arcsec).to(u.deg)
+        dec_err = (np.sqrt(cov[:,1,1])*u.arcsec).to(u.deg)
+
+        pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
+        pmra_err = (np.sqrt(cov[:,2,2])*u.arcsec/u.year).to(u.mas/u.year)
+        pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
+        pmdec_err = (np.sqrt(cov[:,3,3])*u.arcsec/u.year).to(u.mas/u.year)
+        pm = np.hypot(pmra,pmdec)
+        parallax = p_fits[:,4]
+        parallax_err = np.sqrt(cov[:,4,4])
+
+        alpha = pm_arr[:,1]
+        chisqTotal = np.array(pm_arr[:,2],dtype=np.float64)
+        t = pm_arr[:,3]
+        dof = np.array(pm_arr[:,4],dtype=np.float64)
+        nClip = np.array(pm_arr[:,5],dtype=np.float64)
+        members = pm_arr[:,6]
+        clipped = pm_arr[:,7]
+
+        data = [
+            idx,
+            ls_mtype,
+            ra,
+            ra_err,
+            dec,
+            dec_err,
+            pm,
+            pmra,
+            pmra_err,
+            pmdec,
+            pmdec_err,
+            parallax,
+            parallax_err,
+        #     alpha,
+            chisqTotal,
+        #     t,
+            dof,
+            nClip,
+        #     members,
+        #     clipped
+        ]
+
+        tbl = QTable(names=column_names,data=data)
+        
+        detection_column_names = [
+            'idx',
+            'detections',
+            'clipped'
+        ]
+
+        detection_tbl = QTable(names=detection_column_names,
+            dtype=['i4','i4','i4'])
+        for i in idx:
+            clipbool = len(members[i])*[False] + len(clipped[i])*[True]
+            detections = np.hstack((members[i],clipped[i]))
+            temp_tbl = QTable(data=[[i]*len(detections),detections,clipbool], 
+                names=detection_column_names,
+                dtype=['i4','i4','i4'])
+            
+            detection_tbl = vstack([detection_tbl,temp_tbl])
+
+        if outputname==None:
+            tbl.write(filename[:-4]+'_'+mtype+'_movers.fits',overwrite=True)
+            detection_tbl.write(filename[:-4]+'_'+mtype+'_detections.fits', \
+                overwrite=True)
+        else:
+            tbl.write(outputname+'.fits',overwrite=True)
+            detection_tbl.write(outputname+'_detections.fits', \
+                overwrite=True)
+    return
 
 # =============================================================================
 
-
-
-def detections_for_removal(pm_arr,pm_lim,pm_err_lim):
-
-    p_fits = np.vstack(pm_arr[:,0])
-    cov = np.array([np.linalg.inv(i) for i in pm_arr[:,1]])
-
-    pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
-    pmra_err = (cov[:,2,2]*u.arcsec/u.year).to(u.mas/u.year)
-    pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
-    pmdec_err = (cov[:,3,3]*u.arcsec/u.year).to(u.mas/u.year)
-
-    removals = np.concatenate([pm_arr[i][-2] for i in range(len(pm_arr)) \
-        if np.logical_and(abs(pmra_err[i])<pm_err_lim*u.mas/u.year, \
-            abs(pmdec_err[i])<pm_err_lim*u.mas/u.year) \
-        and np.hypot(pmra[i],pmdec[i])<pm_lim*u.mas/u.year])
-
-    return removals
 
 # =============================================================================
 # 5D Fitter
@@ -619,10 +605,40 @@ def fit5d(indices, time_sep=0.7, chisqClip=11., parallax_prior=0.15,
 
 # =============================================================================
 
+
+# =============================================================================
+# Multithreading Functions
+# =============================================================================
+
+def multithreader(func,lol,cores=1):
+    # Distributes a function acting on a list of lists to multiple cores
+    pool = Pool(cores)
+    ls_out = pool.map(func,lol)
+    pool.close()
+    pool.join()
+    return ls_out
+
+
+def multi_fit5d(fitter,detections_groups,cores=1):
+    # Multithreaded application of a 5D fitter to groups of detections
+    pm_list = multithreader(fitter,detections_groups,cores)
+
+    # Remove fits that return None
+    clean_pm_list = [i for i in pm_list if i!=None]
+    
+    # Convert list to array and discard list
+    clean_pm_arr = np.array(clean_pm_list,dtype=object)
+    clean_pm_list.clear()
+
+    return clean_pm_arr
+
+# =============================================================================
+
+
 if __name__=='__main__':
     help = "Still need to write the help section"
 
-    my_cores=24
+    my_cores=os.cpu_count()
 
     if len(sys.argv)==2:
         if sys.argv[1]=='-h' or sys.argv[1]=='--help':
