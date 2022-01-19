@@ -77,7 +77,7 @@ if __name__=="__main__":
 
         table_hdu = pf.BinTableHDU(data=tbl,header=hdr)
         
-        table_hdu.writeto(tilename+'_'+obj_type+'_'+str(obj_id) \ 
+        table_hdu.writeto(tilename+'_'+obj_type+'_'+str(obj_id) \
             +'_finalcut.cat',overwrite=True)
 
         sys.exit(0)
