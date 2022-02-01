@@ -6,9 +6,9 @@ Fit full five-parameter PM/parallax model to observations.
 
 import numpy as np
 
-def singleFit(xy,cov_xy, t,par_xy, parallax_prior=None):
+def singleFit(xy_in,cov_xy, t,par_xy, parallax_prior=None):
     '''Fit 5-parameter model to stellar observations, where:
-    `xy` is Nx2 array of observations of the star, in arcsec
+    `xy_in` is Nx2 array of observations of the star, in arcsec
     `cov` is Nx3 array giving (sig^2_x, sig^2_y, cov_xy) for each
     `t`  is time of observation of each (in yrs)
     `par_xy` are -1*(projected earth position components), in AU
@@ -20,8 +20,8 @@ def singleFit(xy,cov_xy, t,par_xy, parallax_prior=None):
     `chisq` vector of chisq of each observation.'''
 
     # Remove means from xy for numerical stability
-    xyMean = np.mean(xy, axis=0)
-    xy -= xyMean
+    xyMean = np.mean(xy_in, axis=0)
+    xy = xy_in - xyMean
     # Build matrices
     npts = xy.shape[0]
     one = np.ones(npts, dtype=float)
