@@ -8,7 +8,7 @@ import numpy as np
 import sys
 import os
 import argparse
-from astropy.table import Table
+from astropy.table import Table,QTable
 
 if __name__=="__main__":
     if len(sys.argv)==4:
@@ -27,21 +27,15 @@ if __name__=="__main__":
         if obj_type=='fast':
             cat = 'pre_fast_'+tilename+".finalcut.cat"
 
-        hdul_cat = pf.open(cat)
-        data_cat = hdul_cat[1].data
-        hdul_cat.close()
+        data_cat = Table.read(cat)
 
         objects = tilename+".finalcut_"+obj_type+"_movers.fits"
 
-        hdul_obj = pf.open(objects)
-        data_obj = hdul_obj[1].data
-        hdul_obj.close()
+        data_obj = Table.read(objects)
 
         detections = tilename+".finalcut_"+obj_type+"_detections.fits"
 
-        hdul_det = pf.open(detections)
-        data_det = hdul_det[1].data
-        hdul_det.close()
+        data_det = Table.read(detections)
 
         obj_info = data_obj[obj_id]
 
@@ -49,29 +43,49 @@ if __name__=="__main__":
         hdr['idx'] = obj_info['idx']
         hdr['mtype'] = obj_info['mtype']
         hdr['ra'] = obj_info['ra']
-        hdr['raerr'] = obj_info['ra_err']
         hdr['dec'] = obj_info['dec']
-        hdr['decerr'] = obj_info['dec_err']
         hdr['pm'] = obj_info['pm']
         hdr['pmra'] = obj_info['pmra']
-        hdr['pmra_err'] = obj_info['pmra_err']
         hdr['pmdec'] = obj_info['pmdec']
-        hdr['pmdecerr'] = obj_info['pmdec_err']
         hdr['parallax'] = obj_info['parallax']
-        hdr['paraerr'] = obj_info['parallax_err']
+
+        cov_list = [
+            'c_xx',
+            'c_yy',
+            'c_vxvx',
+            'c_vyvy',
+            'c_pipi',
+
+            'c_xy',
+            'c_xvx',
+            'c_xvy',
+            'c_xpi',
+
+            'c_yvx',
+            'c_yvy',
+            'c_ypi',
+
+            'c_vxvy',
+            'c_vxpi',
+
+            'c_vypi'
+        ]
+
+        for i in cov_list:
+            hdr[i] = obj_info[i]
+
         hdr['chisqTot'] = obj_info['chisqTotal']
         hdr['dof'] = obj_info['dof']
 
+
         empty_primary = pf.PrimaryHDU(header=hdr)
 
-        obj_detections = data_det['detections'][np.argwhere(data_det['idx'] \
-            ==obj_id)] 
+        obj_detections = data_det['detections'][np.array(data_det['idx']) \
+            ==obj_id] 
 
-        obj_clipped = data_det['clipped'][np.argwhere(data_det['idx']==obj_id)] 
+        obj_clipped = data_det['clipped'][np.array(data_det['idx'])==obj_id] 
 
-        obj_det_data = data_cat[obj_detections]
-
-        tbl = Table(obj_det_data)
+        tbl = data_cat[obj_detections]
 
         tbl.add_column(obj_clipped,name='clipped')
 

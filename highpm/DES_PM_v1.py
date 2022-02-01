@@ -214,10 +214,12 @@ def posvel(pair,cat):
                                 time_sep,first,second])
     return pair_posvel
 
-def fast_movers(cat,pairlength=60./3600.,linklength=12./3600.,cores=1, \
+def fast_movers(cat,linklength=5./3600.,cores=1, \
     min_pairs=10):
     xi = cat['XI']
     eta = cat['ETA']
+
+    pairlength = 5*linklength
 
     fast_tree = arborist(xi,eta)
     print('fast_tree built...')
@@ -236,7 +238,7 @@ def fast_movers(cat,pairlength=60./3600.,linklength=12./3600.,cores=1, \
     print('keepers found...')
     fast_posvel = fast_posvel[pm_keep]
     print('keepers kept...')
-    fast_data = np.hstack((fast_posvel[:,:2],(6)*fast_posvel[:,2:4]))
+    fast_data = np.hstack((fast_posvel[:,:2],(2)*fast_posvel[:,2:4]))
     print('prepped for 4d tree...')
     fast_4dtree = sps.cKDTree(fast_data)
     print('4d tree planted...')

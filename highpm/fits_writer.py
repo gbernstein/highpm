@@ -17,16 +17,11 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             'idx',
             'mtype',
             'ra',
-            'ra_err',
             'dec',
-            'dec_err',
             'pm',
             'pmra',
-            'pmra_err',
             'pmdec',
-            'pmdec_err',
             'parallax',
-            'parallax_err',
         #     'alpha',
             'chisqTotal',
         #     't',
@@ -34,6 +29,25 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             'nClip',
         #     'members',
         #     'clipped'
+            'c_xx',
+            'c_yy',
+            'c_vxvx',
+            'c_vyvy',
+            'c_pipi',
+
+            'c_xy',
+            'c_xvx',
+            'c_xvy',
+            'c_xpi',
+
+            'c_yvx',
+            'c_yvy',
+            'c_ypi',
+
+            'c_vxvy',
+            'c_vxpi',
+
+            'c_vypi'
         ]
 
         idx   = range(len(pm_arr))
@@ -51,17 +65,44 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
         dec0 = header['DEC0']
 
         ra,dec = gnomonic_plate2sky(xi,eta,ra0,dec0)*u.deg
-
-        ra_err = (np.sqrt(cov[:,0,0])*u.arcsec).to(u.deg)
-        dec_err = (np.sqrt(cov[:,1,1])*u.arcsec).to(u.deg)
-
-        pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
-        pmra_err = (np.sqrt(cov[:,2,2])*u.arcsec/u.year).to(u.mas/u.year)
-        pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
-        pmdec_err = (np.sqrt(cov[:,3,3])*u.arcsec/u.year).to(u.mas/u.year)
+        pmra   = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
+        pmdec  = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
         pm = np.hypot(pmra,pmdec)
         parallax = p_fits[:,4]
-        parallax_err = np.sqrt(cov[:,4,4])
+
+
+
+        c_xx   = cov[:,0,0]
+        c_yy   = cov[:,1,1]
+        c_vxvx = cov[:,2,2]
+        c_vyvy = cov[:,3,3]
+        c_pipi = cov[:,4,4]
+
+        c_xy   = cov[:,0,1]
+        c_xvx  = cov[:,0,2]
+        c_xvy  = cov[:,0,3]
+        c_xpi  = cov[:,0,4]
+
+        c_yvx  = cov[:,1,2]
+        c_yvy  = cov[:,1,3]
+        c_ypi  = cov[:,1,4]
+
+        c_vxvy = cov[:,2,3]
+        c_vxpi = cov[:,2,4]
+
+        c_vypi = cov[:,3,4]
+
+
+        # ra_err = (np.sqrt(cov[:,0,0])*u.arcsec).to(u.deg)
+        # dec_err = (np.sqrt(cov[:,1,1])*u.arcsec).to(u.deg)
+
+        # pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
+        # pmra_err = (np.sqrt(cov[:,2,2])*u.arcsec/u.year).to(u.mas/u.year)
+        # pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
+        # pmdec_err = (np.sqrt(cov[:,3,3])*u.arcsec/u.year).to(u.mas/u.year)
+        # pm = np.hypot(pmra,pmdec)
+        # parallax = p_fits[:,4]
+        # parallax_err = np.sqrt(cov[:,4,4])
 
         alpha = pm_arr[:,1]
         chisqTotal = np.array(pm_arr[:,2],dtype=np.float64)
@@ -75,16 +116,11 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             idx,
             ls_mtype,
             ra,
-            ra_err,
             dec,
-            dec_err,
             pm,
             pmra,
-            pmra_err,
             pmdec,
-            pmdec_err,
             parallax,
-            parallax_err,
         #     alpha,
             chisqTotal,
         #     t,
@@ -92,6 +128,25 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             nClip,
         #     members,
         #     clipped
+            c_xx,
+            c_yy,
+            c_vxvx,
+            c_vyvy,
+            c_pipi,
+
+            c_xy,
+            c_xvx,
+            c_xvy,
+            c_xpi,
+
+            c_yvx,
+            c_yvy,
+            c_ypi,
+
+            c_vxvy,
+            c_vxpi,
+
+            c_vypi
         ]
 
         tbl = QTable(names=column_names,data=data)
