@@ -13,10 +13,13 @@ import scipy.ndimage
 from scipy.ndimage.filters import gaussian_filter
 from multiprocessing import Pool
 from functools import partial
+from astropy.table import Column
+from pixmappy import DESMaps
 from pmfit import *
 from friends_of_friends import *
 from fits_writer import *
 from cat_reader import *
+import tqdm
 
 
 
@@ -38,7 +41,7 @@ def detections_for_removal(pm_arr,pm_lim,pm_err_lim):
     removals = np.concatenate([pm_arr[i][-2] for i in range(len(pm_arr)) \
         if np.logical_and(abs(pmra_err[i])<pm_err_lim*u.mas/u.year, \
             abs(pmdec_err[i])<pm_err_lim*u.mas/u.year) \
-        and np.hypot(pmra[i],pmdec[i])<pm_lim*u.mas/u.year])
+            and np.hypot(pmra[i],pmdec[i])<pm_lim*u.mas/u.year])
 
     return removals
 
@@ -82,9 +85,9 @@ def centroid(data):
     
 def peak_finder(velocity_image):
     velocity_image_thresh = velocity_image.copy()
-    velocity_image_blur = gaussian_filter(velocity_image_thresh,sigma=2)
+    velocity_image_blur = gaussian_filter(velocity_image_thresh,sigma=1)
     velocity_image_thresh[velocity_image_blur \
-        < 0.85*np.max(velocity_image_blur)]=0
+        < 0.9*np.max(velocity_image_blur)]=0
         
     #now find the objects
     labeled_image, number_of_objects = scipy.ndimage.label(
@@ -141,8 +144,9 @@ def modest_movers(sample,cat):
 
         ra_0 = np.mean(cat['XI'][sample])
 
-        ra_i = (cat['XI'][sample] - ra_0)
+        ra_i = 3600*(cat['XI'][sample] - ra_0)
         ra_err_i = 3600*(cat['ERRAWIN_WORLD'][sample])
+        ra_err_i = np.hypot(ra_err_i,cat['TURBERRA'][sample])
 
 
         ra_centroids,ra_obj_list = object_finder(sample,t_i,ra_i,ra_err_i)
@@ -151,8 +155,9 @@ def modest_movers(sample,cat):
 
         dec_0 = np.mean(cat['ETA'][sample])
 
-        dec_i = (cat['ETA'][sample] - dec_0)
+        dec_i = 3600*(cat['ETA'][sample] - dec_0)
         dec_err_i = 3600*(cat['ERRBWIN_WORLD'][sample])
+        dec_err_i = np.hypot(dec_err_i,cat['TURBERRB'][sample])
 
 
         dec_centroids,dec_obj_list = object_finder(sample,t_i,dec_i,dec_err_i)
@@ -200,21 +205,26 @@ def modest_fitter(cat,linklength=1./3600.,cores=1):
 # =============================================================================
 
 def posvel(pair,cat):
+    mjd_ref=57388.0
     first,second=pair
-    time_sep = (cat['MJD'][second]-cat['MJD'][first])/365.25
+    time_sep = (cat['MJD'][second]-cat['MJD'][first])/365.2425
     pair_posvel=np.zeros((7))
     if time_sep > 0.7:
-        avg_ra   = np.mean(cat['XI'][[first,second]])
-        avg_dec  = np.mean(cat['ETA'][[first,second]])
         vel_ra   = (cat['XI'][second]-cat['XI'][first])/time_sep
         vel_dec  = (cat['ETA'][second]-cat['ETA'][first])/time_sep
+        avg_ra   = np.mean(cat['XI'][[first,second]]) \
+                   - vel_ra * (np.mean(cat['MJD'][[first,second]]) \
+                   - mjd_ref)/365.2425
+        avg_dec  = np.mean(cat['ETA'][[first,second]]) \
+                   - vel_dec * (np.mean(cat['MJD'][[first,second]]) \
+                   - mjd_ref)/365.2425
         
         pair_posvel = np.array([avg_ra,avg_dec,
                                 vel_ra,vel_dec,
                                 time_sep,first,second])
     return pair_posvel
 
-def fast_movers(cat,linklength=5./3600.,cores=1, \
+def fast_movers(cat,linklength=2./3600.,cores=1, \
     min_pairs=10):
     xi = cat['XI']
     eta = cat['ETA']
@@ -233,7 +243,7 @@ def fast_movers(cat,linklength=5./3600.,cores=1, \
     print('same detection pairs removed...')
     pm_keep = np.logical_and(
         np.hypot(fast_posvel[:,2], fast_posvel[:,3])>1/3600,
-        np.hypot(fast_posvel[:,2], fast_posvel[:,3])<linklength
+        np.hypot(fast_posvel[:,2], fast_posvel[:,3])<18/3600
         )
     print('keepers found...')
     fast_posvel = fast_posvel[pm_keep]
@@ -243,9 +253,9 @@ def fast_movers(cat,linklength=5./3600.,cores=1, \
     fast_4dtree = sps.cKDTree(fast_data)
     print('4d tree planted...')
     fast_friends = find_friend(fast_4dtree,linklength,cores)
-    print('fast_friends found...')
+    print(str(len(fast_friends))+' fast_friends found...')
     fast_objects = friends_of_friends(fast_friends)
-    print('friends of friends found...')
+    print(str(len(fast_objects))+' friends of friends found...')
     hipm_object_sets = [i for i in fast_objects if len(i)>min_pairs]
     print('high pm objects cleaned...')
     fast_obj = []
@@ -259,7 +269,101 @@ def fast_movers(cat,linklength=5./3600.,cores=1, \
     fast_obj = np.unique(fast_obj)
     print('unique fast objects complete!')
     return fast_obj
+
+
+def mkimg(t_i,pos_i,pos_err_i,pm,w,h):
+    velocity_image = np.zeros((0,w))
+    for v in np.linspace(-int(pm+1),int(pm+1),h):
+        sample_gaussians = np.zeros((0,w))
+        pos = np.linspace(-int(3*pm),int(3*pm),w)
+        for i in range(len(pos_i)):
+            norm_i = normal_dist(pos,pos_i[i]+t_i[i]*v,pos_err_i[i])
+            sample_gaussians = np.vstack((sample_gaussians,norm_i))
+        sample_distribution = np.sum(sample_gaussians,axis=0)
+        velocity_image = np.vstack((velocity_image,sample_distribution))
+
+    velocity_image = gaussian_filter(velocity_image,sigma=2)
+    return velocity_image
+
+def fast_checker(idx,cat,fast_cat):
+
+    temp_idx_circ = (cat['XI']-fast_cat['xi'][idx])**2+(cat['ETA']-fast_cat['eta'][idx])**2 \
+                <((3*u.yr/u.mas*fast_cat['pm'][idx]+1000)/3600000)**2
+    temp_cat_circ = cat[temp_idx_circ]
     
+    slope = fast_cat['pmdec'][idx]/fast_cat['pmra'][idx]
+    temp_idx = np.abs(slope*(temp_cat_circ['XI']-fast_cat['xi'][idx])
+                      +fast_cat['eta'][idx]-temp_cat_circ['ETA']) \
+                      /np.sqrt(1+slope**2) < 2/3600.
+    temp_cat = temp_cat_circ[temp_idx]
+    
+    res = 25
+
+    pm = (fast_cat['pm'][idx]/1000).value
+    w = round(2*3*res*pm+res)
+    h = round(2*res*(pm+1))
+
+    ra_0 = np.mean(temp_cat['XI'])
+    dec_0 = np.mean(temp_cat['ETA'])
+
+    obj_lol = []
+
+    for _ in range(10):#range(len(fast_cat)):
+
+        if len(temp_cat)>=10:
+            sample = np.arange(len(temp_cat))
+            t_0 = np.median(temp_cat['MJD'])
+            t_i = (temp_cat['MJD'] - t_0)/365.2425
+
+            # =============== RA =========================
+
+            ra_i = 3600*(temp_cat['XI'] - ra_0)
+            ra_err_i = 3600*(temp_cat['ERRAWIN_WORLD'])
+            ra_err_i = np.hypot(ra_err_i,temp_cat['TURBERRA'])
+
+            ra_velocity_image = mkimg(t_i,ra_i,ra_err_i,pm,w,h)
+
+            ra_centroids = np.array(np.unravel_index(np.argmax(ra_velocity_image, axis=None), 
+                                            ra_velocity_image.shape))
+            ra_centroids_1 = (ra_centroids[1]-w/2)/res
+            ra_centroids_0 = (ra_centroids[0]-h/2)/res
+
+            ra_residuals = abs(ra_i + ra_centroids_0*t_i - ra_centroids_1)
+            ra_obj_list = [sample[j] for j in range(len(sample)) \
+                if ra_residuals[j]<5*ra_err_i[j]]
+
+            # =============== DEC ========================
+
+            dec_i = 3600*(temp_cat['ETA'] - dec_0)
+            dec_err_i = 3600*(temp_cat['ERRAWIN_WORLD'])
+            dec_err_i = np.hypot(dec_err_i,temp_cat['TURBERRB'])
+
+            dec_velocity_image = mkimg(t_i,dec_i,dec_err_i,pm,w,h)
+
+            dec_centroids = np.array(np.unravel_index(np.argmax(dec_velocity_image, axis=None), 
+                                            dec_velocity_image.shape))
+            dec_centroids_1 = (dec_centroids[1]-w/2)/res
+            dec_centroids_0 = (dec_centroids[0]-h/2)/res
+
+            dec_residuals = abs(dec_i + dec_centroids_0*t_i - dec_centroids_1)
+            dec_obj_list = [sample[j] for j in range(len(sample)) \
+                if dec_residuals[j]<5*dec_err_i[j]]
+
+            if len(ra_obj_list)==0 and len(dec_obj_list)==0:
+                break
+        
+            obj_list = ra_obj_list
+            if np.max(ra_velocity_image)/(len(ra_obj_list)+1) \
+                <np.max(dec_velocity_image)/(len(dec_obj_list)+1) or \
+                len(ra_obj_list)==0:
+                obj_list = dec_obj_list
+
+            temp_cat.remove_rows(obj_list)
+
+            obj_lol.append(obj_list)
+
+    return obj_lol
+
 
 # =============================================================================
 
@@ -269,9 +373,15 @@ def fast_movers(cat,linklength=5./3600.,cores=1, \
 # =============================================================================
 
 def multithreader(func,lol,cat,cores=1):
+    ls_out = []
     partial_func = partial(func,cat=cat)
     with Pool(processes=cores) as pool:
-        ls_out = pool.map(partial_func,lol)
+        for _ in tqdm.tqdm(pool.imap_unordered(partial_func,lol,
+                    chunksize=1000),
+                total=len(lol)):
+            ls_out.append(_)
+            pass
+        # ls_out = pool.map(partial_func,lol)
     pool.close()
     pool.join()
     return ls_out
@@ -309,12 +419,38 @@ if __name__=='__main__':
 
     cat = read_cat_data(catname)
 
+    cat = clean_cat(cat)
+
+    maps = DESMaps()
+
+    tile_exposures = np.unique(cat['EXPNUM'])
+    turb = np.array([maps.getCovariance(i) for i in tile_exposures])
+    turb_a = np.sqrt(turb[:,0,0])/(1000*3600)
+    turb_b = np.sqrt(turb[:,1,1])/(1000*3600)
+    
+    turberr_a = np.zeros(len(cat))
+    turberr_b = np.zeros(len(cat))
+    for i in range(len(tile_exposures)):
+        turberr_a[np.argwhere(cat['EXPNUM']==tile_exposures[i])] \
+            = turb_a[i]
+        turberr_b[np.argwhere(cat['EXPNUM']==tile_exposures[i])] \
+            = turb_b[i]
+
+    turberr_a_col = Column(name='TURBERRA',data=turberr_a)
+    turberr_b_col = Column(name='TURBERRB',data=turberr_b)
+    
+    cat.add_column(turberr_a_col)
+    cat.add_column(turberr_b_col)
+
+    cat.write('NEW_'+catname,format='fits',overwrite=True)
+    cat_copy = cat.copy()
+
     slow_detection_groups = slow_movers(cat,cores=my_cores)
 
     slow_pm_arr = multi_fit5d(fit5d,slow_detection_groups,cat,cores=my_cores)
 
     print('Writing slow movers...')
-    output_fits(slow_pm_arr,catname,'slow')
+    slow_tbl = output_fits(slow_pm_arr,catname,'slow')
 
     slow_detections = detections_for_removal(slow_pm_arr,100,10)
 
@@ -324,7 +460,7 @@ if __name__=='__main__':
     modest_pm_arr = modest_fitter(cat,cores=my_cores)
 
     print('Writing modest movers...')
-    output_fits(modest_pm_arr,catname,'modest')
+    modest_tbl = output_fits(modest_pm_arr,catname,'modest')
 
     modest_detections = detections_for_removal(modest_pm_arr,1000,10)
 
@@ -336,7 +472,25 @@ if __name__=='__main__':
     fast_pm_arr = multi_fit5d(fit5d,fast_detection_groups,cat,cores=my_cores)
 
     print('Writing fast movers...')
-    output_fits(fast_pm_arr,catname,'fast')
+    fast_tbl = output_fits(fast_pm_arr,catname,'fast')
+
+    fast_tbl = fast_tbl[fast_tbl['pm']>100*u.mas/u.yr]
+
+    # ls_out = []
+    # part_fast_checker = partial(fast_checker,cat=cat,fast_cat=fast_tbl)
+    # with Pool(processes=my_cores) as pool:
+    #     for _ in tqdm.tqdm(pool.imap_unordered(part_fast_checker,np.arange(len(fast_tbl)),
+    #                 chunksize=10),
+    #             total=len(fast_tbl)):
+    #         ls_out.append(_)
+    #         pass
+    # pool.close()
+    # pool.join()
+
+    # print(ls_out)
+
+
+
 
     print('Done!')
 
