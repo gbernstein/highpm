@@ -4,6 +4,7 @@ Fit full five-parameter PM/parallax model to observations.
 
 ## ??? Need to gaurd against bad fits,  perhaps a v weak prior on PM
 
+from cmath import exp
 import numpy as np
 
 def singleFit(xy_in,cov_xy, t,par_xy, parallax_prior=None):
@@ -56,8 +57,8 @@ def singleFit(xy_in,cov_xy, t,par_xy, parallax_prior=None):
 
     return p, fit, chisq, alpha
 
-def fit5d(indices,cat, time_sep=0.7, chisqClip=11., parallax_prior=0.15, 
-            mjd_ref=57388.0, err_floor = 0.01):
+def fit5d(indices,cat, time_sep=3, chisqClip=11., parallax_prior=0.15, 
+            mjd_ref=57388.0,minPts=5):
     '''Execute 5d fit, with outlier rejection, on entries
     in the catalog at the rows specified by `indices`.
     Input catalog units are degrees but all parallax
@@ -89,8 +90,13 @@ def fit5d(indices,cat, time_sep=0.7, chisqClip=11., parallax_prior=0.15,
     # Put covariance into matrix form
     a = np.array(cat['ERRAWIN_WORLD'][indices]) * degree
     b = np.array(cat['ERRBWIN_WORLD'][indices]) * degree
-    a = np.hypot(a,err_floor)
-    b = np.hypot(b,err_floor)
+    
+    turb_a = np.array(cat['TURBERRA'][indices])
+    turb_b = np.array(cat['TURBERRB'][indices])
+
+    a = np.hypot(a,turb_a)
+    b = np.hypot(b,turb_b) 
+
     pa = np.array(cat['ERRTHETAWIN_J2000'][indices]) \
         * np.pi / 180.  # in radians
     # Convert to cov
@@ -98,12 +104,13 @@ def fit5d(indices,cat, time_sep=0.7, chisqClip=11., parallax_prior=0.15,
     cov_xy = np.array( [a*a+b*b + ee*np.cos(pa),
                         a*a+b*b - ee*np.cos(pa),
                         ee*np.sin(pa)]).T / 2.
+
     nClip = 0
     clips = []
-    minPts = 10
    
     # Begin fit/clip loop
-    while xy.shape[0] >= minPts and max(t)-min(t)>time_sep:
+    while (xy.shape[0] >= minPts 
+           and len(np.unique([round(i) for i in t]))>=time_sep):
         p, fit, chisq, alpha = singleFit(xy, cov_xy, t, par_xy,
                                          parallax_prior=parallax_prior)
         # See if anything is clipped

@@ -16,6 +16,8 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
         column_names = [
             'idx',
             'mtype',
+            'xi',
+            'eta',
             'ra',
             'dec',
             'pm',
@@ -115,6 +117,8 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
         data = [
             idx,
             ls_mtype,
+            xi,
+            eta,
             ra,
             dec,
             pm,
@@ -176,4 +180,4 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             tbl.write(outputname+'.fits',overwrite=True)
             detection_tbl.write(outputname+'_detections.fits', \
                 overwrite=True)
-    return
+    return tbl
