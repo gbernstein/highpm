@@ -92,11 +92,11 @@ if __name__=="__main__":
         obj_type = sys.argv[2]
         obj_id = int(sys.argv[3])
 
-        if obj_type not in ['slow','modest','fast']:
+        if obj_type not in ['slow','modest','fast','fast_checked']:
             print("Supported object types are: 'slow', 'modest', 'fast'")
             sys.exit(1)
 
-        if obj_type=='slow':
+        if obj_type=='slow' or obj_type=='fast_checked':
             cat = 'NEW_'+tilename+".finalcut.cat"
         if obj_type=='modest':
             cat = 'pre_modest_'+tilename+".finalcut.cat"

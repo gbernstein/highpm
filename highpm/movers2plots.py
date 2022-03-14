@@ -15,18 +15,21 @@ if __name__=='__main__':
     os.system('rm -r ./'+tilename+'_'+obj_type)
     os.system('mkdir ./'+tilename+'_'+obj_type)
 
-    if obj_type not in ['slow','modest','fast']:
+    if obj_type not in ['slow','modest','fast','fast_checked']:
             print("Supported object types are: 'slow', 'modest', 'fast'")
             sys.exit(1)
     if obj_type=='slow':
         fl = tilename+".finalcut_slow_movers.fits"
-        cat = tilename+".finalcut.cat"
+        cat = 'NEW_'+tilename+".finalcut.cat"
     if obj_type=='modest':
         fl = tilename+".finalcut_modest_movers.fits"
         cat = 'pre_modest_'+tilename+".finalcut.cat"
     if obj_type=='fast':
         fl = tilename+".finalcut_fast_movers.fits"
         cat = 'pre_fast_'+tilename+".finalcut.cat"
+    if obj_type=='fast_checked':
+        fl = tilename+".finalcut_fast_checked_movers.fits"
+        cat = 'NEW_'+tilename+".finalcut.cat"
 
     movers = read_cat_data(fl)
 
