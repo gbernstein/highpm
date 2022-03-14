@@ -271,11 +271,11 @@ def fast_movers(cat,linklength=2./3600.,cores=1, \
     return fast_obj
 
 
-def mkimg(t_i,pos_i,pos_err_i,pm,w,h):
+def mkimg(t_i,pos_i,pos_err_i,w,h,res):
     velocity_image = np.zeros((0,w))
-    for v in np.linspace(-int(pm+1),int(pm+1),h):
+    for v in np.linspace(-h/(2*res),h/(2*res),h):
         sample_gaussians = np.zeros((0,w))
-        pos = np.linspace(-int(3*pm),int(3*pm),w)
+        pos = np.linspace(-w/(2*res),w/(2*res),w)
         for i in range(len(pos_i)):
             norm_i = normal_dist(pos,pos_i[i]+t_i[i]*v,pos_err_i[i])
             sample_gaussians = np.vstack((sample_gaussians,norm_i))
@@ -297,11 +297,14 @@ def fast_checker(idx,cat,fast_cat):
                       /np.sqrt(1+slope**2) < 2/3600.
     temp_cat = temp_cat_circ[temp_idx]
     
-    res = 25
-
     pm = (fast_cat['pm'][idx]/1000).value
-    w = round(2*3*res*pm+res)
-    h = round(2*res*(pm+1))
+
+    res = 30
+    if pm<0.1:
+        res = 300
+
+    w = round(2*3*res*(pm))+2*res
+    h = round(2*res*(pm))+2*res
 
     ra_0 = np.mean(temp_cat['XI'])
     dec_0 = np.mean(temp_cat['ETA'])
@@ -309,20 +312,45 @@ def fast_checker(idx,cat,fast_cat):
     obj_lol = []
 
     for _ in range(10):#range(len(fast_cat)):
-
-        if len(temp_cat)>=10:
+        
+        if len(temp_cat)>5:
             sample = np.arange(len(temp_cat))
             t_0 = np.median(temp_cat['MJD'])
-            t_i = (temp_cat['MJD'] - t_0)/365.2425
+            t_i = (temp_cat['MJD'] - t_0)/365.25
+            
+            a = np.array(temp_cat['ERRAWIN_WORLD']) * 3600.
+            b = np.array(temp_cat['ERRBWIN_WORLD']) * 3600.
 
+            turb_aa = np.array(temp_cat['TURBERRA'])
+            turb_bb = np.array(temp_cat['TURBERRB'])
+            turb_ab = np.array(temp_cat['TURBERRAB'])
+
+            turb_ee = turb_aa - turb_bb
+
+            np.seterr(invalid='ignore')
+
+            turb_pa = 0.5 * np.arctan(2*np.divide(turb_ab , turb_ee))
+            turb_pa[np.isnan(turb_pa)] = 0
+            turb_sig_aa = 0.5 * (turb_aa + turb_bb \
+                - np.sqrt(turb_ee**2 + 4*turb_ab**2))
+            turb_sig_bb = 0.5 * (turb_aa + turb_bb \
+                + np.sqrt(turb_ee**2 + 4*turb_ab**2))
+
+            pa = np.array(temp_cat['ERRTHETAWIN_J2000']) \
+                * np.pi / 180.  # in radians
+            # Convert to cov
+            ee = a*a - b*b
+            
+            
             # =============== RA =========================
 
+
             ra_i = 3600*(temp_cat['XI'] - ra_0)
-            ra_err_i = 3600*(temp_cat['ERRAWIN_WORLD'])
-            ra_err_i = np.hypot(ra_err_i,temp_cat['TURBERRA'])
+            ra_err_i = np.sqrt(a*a+b*b + ee*np.cos(pa) 
+                            + turb_sig_aa+turb_sig_bb+turb_ee*np.cos(turb_pa))
 
-            ra_velocity_image = mkimg(t_i,ra_i,ra_err_i,pm,w,h)
-
+            ra_velocity_image = mkimg(t_i,ra_i,ra_err_i,w,h,res)
+            
             ra_centroids = np.array(np.unravel_index(np.argmax(ra_velocity_image, axis=None), 
                                             ra_velocity_image.shape))
             ra_centroids_1 = (ra_centroids[1]-w/2)/res
@@ -330,15 +358,16 @@ def fast_checker(idx,cat,fast_cat):
 
             ra_residuals = abs(ra_i + ra_centroids_0*t_i - ra_centroids_1)
             ra_obj_list = [sample[j] for j in range(len(sample)) \
-                if ra_residuals[j]<5*ra_err_i[j]]
+                if ra_residuals[j]<3*ra_err_i[j]]
 
             # =============== DEC ========================
 
-            dec_i = 3600*(temp_cat['ETA'] - dec_0)
-            dec_err_i = 3600*(temp_cat['ERRAWIN_WORLD'])
-            dec_err_i = np.hypot(dec_err_i,temp_cat['TURBERRB'])
 
-            dec_velocity_image = mkimg(t_i,dec_i,dec_err_i,pm,w,h)
+            dec_i = 3600*(temp_cat['ETA'] - dec_0)
+            dec_err_i = np.sqrt(a*a+b*b - ee*np.cos(pa) 
+                            + turb_sig_aa+turb_sig_bb-turb_ee*np.cos(turb_pa))
+
+            dec_velocity_image = mkimg(t_i,dec_i,dec_err_i,w,h,res)
 
             dec_centroids = np.array(np.unravel_index(np.argmax(dec_velocity_image, axis=None), 
                                             dec_velocity_image.shape))
@@ -347,20 +376,20 @@ def fast_checker(idx,cat,fast_cat):
 
             dec_residuals = abs(dec_i + dec_centroids_0*t_i - dec_centroids_1)
             dec_obj_list = [sample[j] for j in range(len(sample)) \
-                if dec_residuals[j]<5*dec_err_i[j]]
+                if dec_residuals[j]<3*dec_err_i[j]]
 
             if len(ra_obj_list)==0 and len(dec_obj_list)==0:
                 break
-        
+            
             obj_list = ra_obj_list
             if np.max(ra_velocity_image)/(len(ra_obj_list)+1) \
                 <np.max(dec_velocity_image)/(len(dec_obj_list)+1) or \
                 len(ra_obj_list)==0:
                 obj_list = dec_obj_list
+            
+            obj_lol.append(list(temp_cat['ID'][obj_list]))
 
             temp_cat.remove_rows(obj_list)
-
-            obj_lol.append(obj_list)
 
     return obj_lol
 
@@ -425,22 +454,32 @@ if __name__=='__main__':
 
     tile_exposures = np.unique(cat['EXPNUM'])
     turb = np.array([maps.getCovariance(i) for i in tile_exposures])
-    turb_a = np.sqrt(turb[:,0,0])/(1000*3600)
-    turb_b = np.sqrt(turb[:,1,1])/(1000*3600)
+    turb_a = turb[:,0,0]/(1000*3600)**2
+    turb_b = turb[:,1,1]/(1000*3600)**2
+    turb_ab = turb[:,0,1]/(1000*3600)**2
+   
     
     turberr_a = np.zeros(len(cat))
     turberr_b = np.zeros(len(cat))
+    turberr_ab = np.zeros(len(cat))
     for i in range(len(tile_exposures)):
         turberr_a[np.argwhere(cat['EXPNUM']==tile_exposures[i])] \
             = turb_a[i]
         turberr_b[np.argwhere(cat['EXPNUM']==tile_exposures[i])] \
             = turb_b[i]
+        turberr_ab[np.argwhere(cat['EXPNUM']==tile_exposures[i])] \
+            = turb_ab[i]
 
     turberr_a_col = Column(name='TURBERRA',data=turberr_a)
     turberr_b_col = Column(name='TURBERRB',data=turberr_b)
+    turberr_ab_col = Column(name='TURBERRAB',data=turberr_ab)
     
     cat.add_column(turberr_a_col)
     cat.add_column(turberr_b_col)
+    cat.add_column(turberr_ab_col)
+
+    idx_col = Column(name='ID',data=range(len(cat)))
+    cat.add_column(idx_col)
 
     cat.write('NEW_'+catname,format='fits',overwrite=True)
     cat_copy = cat.copy()
@@ -474,21 +513,26 @@ if __name__=='__main__':
     print('Writing fast movers...')
     fast_tbl = output_fits(fast_pm_arr,catname,'fast')
 
-    fast_tbl = fast_tbl[fast_tbl['pm']>100*u.mas/u.yr]
+    # fast_tbl = fast_tbl[fast_tbl['pm']>100*u.mas/u.yr]
 
-    # ls_out = []
-    # part_fast_checker = partial(fast_checker,cat=cat,fast_cat=fast_tbl)
-    # with Pool(processes=my_cores) as pool:
-    #     for _ in tqdm.tqdm(pool.imap_unordered(part_fast_checker,np.arange(len(fast_tbl)),
-    #                 chunksize=10),
-    #             total=len(fast_tbl)):
-    #         ls_out.append(_)
-    #         pass
-    # pool.close()
-    # pool.join()
+    ls_out = []
+    part_fast_checker = partial(fast_checker,cat=cat,fast_cat=fast_tbl)
+    with Pool(processes=my_cores) as pool:
+        for _ in tqdm.tqdm(pool.imap_unordered(part_fast_checker,
+            np.arange(len(fast_tbl)),
+                    chunksize=10),
+                total=len(fast_tbl)):
+            ls_out.append(_)
+            pass
+    pool.close()
+    pool.join()
 
-    # print(ls_out)
+    fast_checked_lol = [i for j in ls_out for i in j]
 
+    fast_checked_arr = multi_fit5d(fit5d,fast_checked_lol,cat_copy,cores=my_cores)
+
+    print('Writing checked fast movers...')
+    fast_checked_tbl = output_fits(fast_checked_arr,catname,'fast_checked')
 
 
 
