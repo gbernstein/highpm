@@ -527,7 +527,7 @@ if __name__=='__main__':
     pool.close()
     pool.join()
 
-    fast_checked_lol = [i for j in ls_out for i in j]
+    fast_checked_lol = filter_list([i for j in ls_out for i in j])
 
     fast_checked_arr = multi_fit5d(fit5d,fast_checked_lol,cat_copy,cores=my_cores)
 

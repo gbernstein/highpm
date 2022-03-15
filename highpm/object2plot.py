@@ -192,8 +192,40 @@ def plotter(data,header,img=None,outdir=None):
 
         clipped = (data['clipped']==1)
 
-        ra_err = np.hypot(data['ERRAWIN_WORLD'],data['TURBERRA'])
-        dec_err = np.hypot(data['ERRBWIN_WORLD'],data['TURBERRB'])
+        a = np.array(data['ERRAWIN_WORLD']) * 3600.
+        b = np.array(data['ERRBWIN_WORLD']) * 3600.
+        
+        turb_aa = np.array(data['TURBERRA'])
+        turb_bb = np.array(data['TURBERRB'])
+        turb_ab = np.array(data['TURBERRAB'])
+
+        turb_ee = turb_aa - turb_bb
+
+        np.seterr(invalid='ignore')
+
+        turb_pa = 0.5 * np.arctan(2*np.divide(turb_ab , turb_ee))
+        turb_pa[np.isnan(turb_pa)] = 0
+        turb_sig_aa = 0.5 * (turb_aa + turb_bb \
+            - np.sqrt(turb_ee**2 + 4*turb_ab**2))
+        turb_sig_bb = 0.5 * (turb_aa + turb_bb \
+            + np.sqrt(turb_ee**2 + 4*turb_ab**2))
+
+        pa = np.array(data['ERRTHETAWIN_J2000']) \
+            * np.pi / 180.  # in radians
+        # Convert to cov
+        ee = a*a - b*b
+        cov_xy = np.array( [a*a+b*b + ee*np.cos(pa),
+                            a*a+b*b - ee*np.cos(pa),
+                            ee*np.sin(pa)]).T / 2.
+
+        turb_cov_xy = np.array([turb_sig_aa+turb_sig_bb+turb_ee*np.cos(turb_pa),
+                                turb_sig_aa+turb_sig_bb-turb_ee*np.cos(turb_pa),
+                                turb_ee*np.sin(turb_pa)]).T
+
+        cov_xy = cov_xy + turb_cov_xy
+
+        ra_err = np.sqrt(cov_xy[:,0])/3600
+        dec_err = np.sqrt(cov_xy[:,1])/3600
 
         detection_err = np.array([ra_err,dec_err]).T
         detection_err_pix = \
