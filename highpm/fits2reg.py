@@ -30,9 +30,10 @@ if __name__=='__main__':
         sys.exit(1)
 
     cat = read_cat_data(filename)
-
-    center = SkyCoord(cat['ra'], cat['dec'], unit='deg')
-
+    try:
+        center = SkyCoord(cat['ra'], cat['dec'], unit='deg')
+    except:
+        center = SkyCoord(cat['RA'], cat['DEC'], unit='deg')
     ds9_str=''
 
     for i in range(len(center)):

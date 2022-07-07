@@ -20,7 +20,36 @@ from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
 import astropy.units as u
 
-def plotter(data,header,img=None,outdir=None):
+def F_ra(ra_star,R_earth,ra_sun,dec_ecliptic):
+    F_ra = (R_earth * np.sin(ra_sun) 
+        * np.cos(ra_star) * np.cos(dec_ecliptic) +
+        R_earth * np.sin(ra_star) * np.cos(ra_sun))
+    return F_ra
+
+def F_dec(ra_star,R_earth,ra_sun,dec_ecliptic,dec_star):
+    F_dec = R_earth * ((np.sin(dec_ecliptic) * np.cos(dec_star) 
+        - np.cos(dec_ecliptic) * np.sin(ra_star) * np.sin(dec_star)) 
+        * np.sin(ra_sun)
+        - np.cos(ra_star) * np.sin(dec_star) * np.cos(ra_sun))
+    return F_dec
+
+def plotter(data,header,img=None,outdir=None,tilename=None):
+    """
+    Plots detections and fit for individual sources.
+
+    Parameters
+    ----------
+    data : 
+    header : 
+    img : 
+    outdir : 
+
+    Yeilds
+    ------
+    
+    """
+
+
     year = 365.2425
     ref_date = 57388.0
     deg2mas = 3600000
@@ -38,19 +67,6 @@ def plotter(data,header,img=None,outdir=None):
         sol = get_body('sun', Time(t_ephem,format='mjd'), loc) 
 
     t = (t_ephem-ref_date)/year
-
-    def F_ra(ra_star,R_earth,ra_sun,dec_ecliptic):
-        F_ra = (R_earth * np.sin(ra_sun) 
-            * np.cos(ra_star) * np.cos(dec_ecliptic) +
-            R_earth * np.sin(ra_star) * np.cos(ra_sun))
-        return F_ra
-
-    def F_dec(ra_star,R_earth,ra_sun,dec_ecliptic,dec_star):
-        F_dec = R_earth * ((np.sin(dec_ecliptic) * np.cos(dec_star) 
-            - np.cos(dec_ecliptic) * np.sin(ra_star) * np.sin(dec_star)) 
-            * np.sin(ra_sun)
-            - np.cos(ra_star) * np.sin(dec_star) * np.cos(ra_sun))
-        return F_dec
 
     params = np.array((np.repeat(RA,1000),
                     sol.distance,
@@ -111,25 +127,28 @@ def plotter(data,header,img=None,outdir=None):
 
     for i in range(len(bands)):
         ax0.scatter((data['MJD'][data['BAND']==bands[i]]-ref_date)/year,
-            deg2mas*(data['ALPHAWIN_J2000'][data['BAND']==bands[i]]-RA),
+            np.cos(np.pi/180 * DEC) \
+            * deg2mas*(data['ALPHAWIN_J2000'][data['BAND']==bands[i]]-RA),
             marker='x',s=100,c=color_ls[i],label=bands[i])
         ax0.errorbar((data['MJD'][data['BAND']==bands[i]]-ref_date)/year,
-            deg2mas*(data['ALPHAWIN_J2000'][data['BAND']==bands[i]]-RA),
+            np.cos(np.pi/180 * DEC) \
+            * deg2mas*(data['ALPHAWIN_J2000'][data['BAND']==bands[i]]-RA),
             yerr=deg2mas*(data['ERRAWIN_WORLD'][data['BAND']==bands[i]]),
             marker='None',ls='None',c=color_ls[i])
     ax0.plot(t,deg2mas*(ra_line-RA),c='k')
     ax0.scatter(np.array((data['MJD']-ref_date)/year)[data['clipped']==1],
-        np.array(deg2mas*(data['ALPHAWIN_J2000']-RA))[data['clipped']==1],
+            np.cos(np.pi/180 * DEC) \
+            * np.array(deg2mas*(data['ALPHAWIN_J2000']-RA))[data['clipped']==1],
         edgecolors='r',facecolors='none',s=160)
 
     ax0.fill_between(t,
                     deg2mas*(ra_line-ra_fit_err/deg2mas-RA),
                     deg2mas*(ra_line+ra_fit_err/deg2mas-RA),
                     color='grey',alpha=0.15)
-    ax0.set_xlabel('Time [yr]',fontsize=15)
-    ax0.set_ylabel('RA [mas]',fontsize=15)
+    ax0.set_xlabel('Time [yr]',fontsize=25)
+    ax0.set_ylabel('RA [mas]',fontsize=25)
     ax0.grid()
-    ax0.legend(fontsize=15)
+    ax0.legend(fontsize=25)
 
 
 
@@ -150,8 +169,8 @@ def plotter(data,header,img=None,outdir=None):
                     deg2mas*(dec_line+dec_fit_err/deg2mas-DEC),
                     color='grey',alpha=0.15)
 
-    ax1.set_xlabel('Time [yr]',fontsize=15)
-    ax1.set_ylabel('DEC [mas]',fontsize=15)
+    ax1.set_xlabel('Time [yr]',fontsize=25)
+    ax1.set_ylabel('DEC [mas]',fontsize=25)
     ax1.grid()
 
 
@@ -194,10 +213,13 @@ def plotter(data,header,img=None,outdir=None):
 
         a = np.array(data['ERRAWIN_WORLD']) * 3600.
         b = np.array(data['ERRBWIN_WORLD']) * 3600.
+
+        # a = np.hypot(a,0.1)
+        # b = np.hypot(b,0.1)
         
-        turb_aa = np.array(data['TURBERRA'])
-        turb_bb = np.array(data['TURBERRB'])
-        turb_ab = np.array(data['TURBERRAB'])
+        turb_aa = np.array(data['TURBERRA']) * 3600.**2
+        turb_bb = np.array(data['TURBERRB']) * 3600.**2
+        turb_ab = np.array(data['TURBERRAB']) * 3600.**2
 
         turb_ee = turb_aa - turb_bb
 
@@ -232,12 +254,15 @@ def plotter(data,header,img=None,outdir=None):
             wcs_cutout.all_world2pix(detection_err+detections,0)
         detection_err_pix = abs(detection_err_pix-detection_pix)
 
-        pm_line = np.array([ra_line,dec_line]).T
+        pm_line = np.array([ra_line + np.cos(np.pi/180 * DEC) \
+            *(ra_line-RA),dec_line]).T
         pm_line_pix = wcs_cutout.all_world2pix(pm_line,0)
 
-        pm_fit_up = np.array([ra_line,dec_line+pm_fit_err/3600]).T
+        pm_fit_up = np.array([ra_line + np.cos(np.pi/180 * DEC) \
+            *(ra_line-RA),dec_line+pm_fit_err/3600]).T
         pm_fit_up_pix = wcs_cutout.all_world2pix(pm_fit_up,0)
-        pm_fit_down = np.array([ra_line,dec_line-pm_fit_err/3600]).T
+        pm_fit_down = np.array([ra_line + np.cos(np.pi/180 * DEC) \
+            *(ra_line-RA),dec_line-pm_fit_err/3600]).T
         pm_fit_down_pix = wcs_cutout.all_world2pix(pm_fit_down,0)
 
         ax2.imshow(cutout.data+100,norm=colors.LogNorm(),
@@ -251,25 +276,29 @@ def plotter(data,header,img=None,outdir=None):
                     c=(data['MJD']-ref_date)/year,zorder=10)
         ax2.scatter(detection_pix[:,0][clipped],detection_pix[:,1][clipped],
                     edgecolors='r',facecolors='none',s=160)
-        ax2.plot(pm_line_pix[:,0],pm_line_pix[:,1],c='w')
-        ax2.plot(pm_fit_up_pix[:,0],pm_fit_up_pix[:,1],c='w',ls='--')
-        ax2.plot(pm_fit_down_pix[:,0],pm_fit_down_pix[:,1],c='w',ls='--')
+        # ax2.plot(pm_line_pix[:,0],pm_line_pix[:,1],c='w')
+        # ax2.plot(pm_fit_up_pix[:,0],pm_fit_up_pix[:,1],c='w',ls='--')
+        # ax2.plot(pm_fit_down_pix[:,0],pm_fit_down_pix[:,1],c='w',ls='--')
 
         fig.colorbar(scatter, 
             ax=ax2, 
-            shrink=0.6).set_label('Time [yr]',fontsize=15)
+            shrink=0.6).set_label('Time [yr]',fontsize=30)
 
-        ax2.set_xlabel('RA',fontsize=15)
-        ax2.set_ylabel('DEC',fontsize=15)
+        ax2.set_xlabel('RA',fontsize=30)
+        ax2.set_ylabel('DEC',fontsize=30)
+        ax2.grid()
 
     name = str(header['MTYPE'])+'_'+str(header['IDX'])
 
-    fig.suptitle(str(header['MTYPE'])+' '+str(header['IDX']),
-        fontsize=20,y=0.91)
+    # fig.suptitle(str(header['MTYPE'])+' '+str(header['IDX']),
+    #     fontsize=20,y=0.91)
     if outdir==None:
         plt.savefig(name+'.png',bbox_inches='tight')
-    if outdir!=None:
+    if outdir!=None and tilename==None:
         plt.savefig('./'+outdir+'/'+name+'.png',bbox_inches='tight')
+    if outdir!=None and tilename!=None:
+        plt.savefig('./'+outdir+'/'+tilename+'_'+name+'.png',
+            bbox_inches='tight')
 
     plt.close()
     return
