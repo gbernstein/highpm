@@ -21,6 +21,11 @@ def read_cat_data(filename):
 
 def clean_cat(catname):
     # Removes detections with "FLAGS"!=0 and "IMAFLAGS!=0"
-    cleancat = catname[np.logical_and(catname["FLAGS"]==0, \
+    cleancat = catname[np.logical_and(catname["FLAGS"]<4, \
                                       catname["IMAFLAGS_ISO"]==0)]
+    try:
+        cleancat = cleancat[np.abs(cleancat["SPREAD_MODEL"]) \
+            < 10*cleancat["SPREADERR_MODEL"]]
+    except:
+        print('No Spead Model cleaning...')
     return cleancat

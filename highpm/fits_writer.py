@@ -49,7 +49,32 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             'c_vxvy',
             'c_vxpi',
 
-            'c_vypi'
+            'c_vypi',
+
+            'g_mag',
+            'r_mag',
+            'i_mag',
+            'z_mag',
+            'Y_mag',
+            'g_i_mag',
+
+            'g_n',
+            'r_n',
+            'i_n',
+            'z_n',
+            'Y_n',
+
+            'g_spread',
+            'r_spread',
+            'i_spread',
+            'z_spread',
+            'Y_spread',
+
+            'g_spread_err',
+            'r_spread_err',
+            'i_spread_err',
+            'z_spread_err',
+            'Y_spread_err'
         ]
 
         idx   = range(len(pm_arr))
@@ -62,9 +87,12 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
         eta = np.array((p_fits[:,1]*u.arcsec).to(u.deg))
 
         header = read_cat_header(filename)
-
+        
         ra0 = header['RA0']
         dec0 = header['DEC0']
+
+        # ra0 = 10.923132
+        # dec0 = -33.536111
 
         ra,dec = gnomonic_plate2sky(xi,eta,ra0,dec0)*u.deg
         pmra   = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
@@ -114,6 +142,33 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
         members = pm_arr[:,6]
         clipped = pm_arr[:,7]
 
+        g_mag = np.array(pm_arr[:,8],dtype=np.float64)
+        r_mag = np.array(pm_arr[:,9],dtype=np.float64)
+        i_mag = np.array(pm_arr[:,10],dtype=np.float64)
+        z_mag = np.array(pm_arr[:,11],dtype=np.float64)
+        Y_mag = np.array(pm_arr[:,12],dtype=np.float64)
+
+        g_n = np.array(pm_arr[:,13],dtype=np.float64)
+        r_n = np.array(pm_arr[:,14],dtype=np.float64)
+        i_n = np.array(pm_arr[:,15],dtype=np.float64)
+        z_n = np.array(pm_arr[:,16],dtype=np.float64)
+        Y_n = np.array(pm_arr[:,17],dtype=np.float64)
+
+        color = np.array(pm_arr[:,18],dtype=np.float64)
+
+        g_spread = np.array(pm_arr[:,19],dtype=np.float64)
+        r_spread = np.array(pm_arr[:,20],dtype=np.float64)
+        i_spread = np.array(pm_arr[:,21],dtype=np.float64)
+        z_spread = np.array(pm_arr[:,22],dtype=np.float64)
+        Y_spread = np.array(pm_arr[:,23],dtype=np.float64)
+
+        g_spread_err = np.array(pm_arr[:,24],dtype=np.float64)
+        r_spread_err = np.array(pm_arr[:,25],dtype=np.float64)
+        i_spread_err = np.array(pm_arr[:,26],dtype=np.float64)
+        z_spread_err = np.array(pm_arr[:,27],dtype=np.float64)
+        Y_spread_err = np.array(pm_arr[:,28],dtype=np.float64)
+
+
         data = [
             idx,
             ls_mtype,
@@ -150,7 +205,33 @@ def output_fits(pm_arr,filename,mtype,fittype='fit5d',outputname=None):
             c_vxvy,
             c_vxpi,
 
-            c_vypi
+            c_vypi,
+
+            g_mag,
+            r_mag,
+            i_mag,
+            z_mag,
+            Y_mag,
+
+            g_n,
+            r_n,
+            i_n,
+            z_n,
+            Y_n,
+
+            color,
+
+            g_spread,
+            r_spread,
+            i_spread,
+            z_spread,
+            Y_spread,
+
+            g_spread_err,
+            r_spread_err,
+            i_spread_err,
+            z_spread_err,
+            Y_spread_err
         ]
 
         tbl = QTable(names=column_names,data=data)

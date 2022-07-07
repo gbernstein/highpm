@@ -8,12 +8,16 @@ from cat_reader import *
 from object2detections import *
 from object2plot import *
 import subprocess
+from getFinalcutTile import *
 
 if __name__=='__main__':
     tilename  = sys.argv[1]
     obj_type = sys.argv[2]
-    os.system('rm -r ./'+tilename+'_'+obj_type)
-    os.system('mkdir ./'+tilename+'_'+obj_type)
+    try:
+        os.system('rm -r ./'+tilename+'_'+obj_type)
+        os.system('mkdir ./'+tilename+'_'+obj_type)
+    except:
+        os.system('mkdir ./'+tilename+'_'+obj_type)
 
     if obj_type not in ['slow','modest','fast','fast_checked']:
             print("Supported object types are: 'slow', 'modest', 'fast'")
@@ -39,11 +43,13 @@ if __name__=='__main__':
     img = sys.argv[3]
 
     for i in movers['idx']:
+
+        ramin,ramax,decmin,decmax,ra0,dec0 = getTileBounds(tilename)
         
-        mktbl(cat,tilename,obj_type,i,outdir=tilename+'_'+obj_type)
+        mktbl(cat,tilename,obj_type,i,ra0=ra0,dec0=dec0,outdir=tilename+'_'+obj_type)
 
         fl_i = './'+tilename+'_'+obj_type+'/'\
-            +obj_type+'_'+str(i)+'_finalcut.cat'
+            +tilename+'_'+obj_type+'_'+str(i)+'_finalcut.cat'
 
         data = read_cat_data(fl_i)
         header = read_cat_header(fl_i)
