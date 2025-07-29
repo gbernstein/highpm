@@ -48,13 +48,11 @@ def singleFit(
                 [zero, one, zero, t, par_xy[:, 1], dxy_dcolor[:, 1]],
             ]
         )
-        nparams = 6
     else:
         # Build 2 x N x 5 matrix of coefficients
         A = np.array(
             [[one, zero, t, zero, par_xy[:, 0]], [zero, one, zero, t, par_xy[:, 1]]]
         )
-        nparams = 5
 
     A = np.swapaxes(A, 1, 2)
 
@@ -114,17 +112,7 @@ def err2cov(temp_cat, additional_error=True):
     turb_a = np.array(temp_cat["NEW_RA_ERR"])
     turb_b = np.array(temp_cat["NEW_DEC_ERR"])
 
-    # turb_ee = turb_aa - turb_bb
-
-    # np.seterr(divide="ignore", invalid="ignore")
-
-    # turb_pa = 0.5 * np.arctan(2 * np.divide(turb_ab, turb_ee))
-    # turb_pa[np.isnan(turb_pa)] = 0
-    # turb_sig_aa = 0.5 * (turb_aa + turb_bb - np.hypot(turb_ee, turb_ab))
-    # turb_sig_bb = 0.5 * (turb_aa + turb_bb + np.hypot(turb_ee, turb_ab))
-
     pa = np.zeros(len(temp_cat), dtype=float)
-    turb_pa = np.zeros(len(temp_cat), dtype=float)
 
     # Convert to cov
     ee = a * a - b * b
@@ -139,7 +127,6 @@ def err2cov(temp_cat, additional_error=True):
         / 2.0
     )
 
-    turb_ee = turb_a * turb_a - turb_b * turb_b
     turb_cov_xy = (
         np.array(
             [
@@ -161,7 +148,6 @@ def fit5d(
     cat,
     time_sep=1.8,
     chisqClip=11.0,
-    # parallax_prior=0.15,
     parallax_prior=1e-5,
     color_prior=5.0,
     mjd_ref=57388.0,
@@ -190,7 +176,7 @@ def fit5d(
     `nClip`: number of points clipped
     Returns `None` if there are insufficient data for a fit."""
 
-    bands = ["g", "r", "i", "z", "Y"]
+    bands = ["g", "r", "i", "z"]
 
     degree = 3600.0  # in arcsec
     day = 1.0 / 365.2425  # in years
@@ -272,7 +258,6 @@ def fit5d(
                 r_mag = sps.mode(temp_cat["MAG_AUTO_R"])[0]
                 i_mag = sps.mode(temp_cat["MAG_AUTO_I"])[0]
                 z_mag = sps.mode(temp_cat["MAG_AUTO_Z"])[0]
-                Y_mag = sps.mode(temp_cat["MAG_AUTO_Y"])[0]
 
                 color = g_mag - i_mag
                 color_err = 0.0
@@ -305,8 +290,6 @@ def fit5d(
                         )
 
                         return None
-
-                    # fitColor = True
 
                 else:
                     p, fit, chisq, alpha = singleFit(
@@ -342,24 +325,20 @@ def fit5d(
                     r_mag,
                     i_mag,
                     z_mag,
-                    Y_mag,
                     color,
                     color_err,
                     band_n["g"],
                     band_n["r"],
                     band_n["i"],
                     band_n["z"],
-                    band_n["Y"],
                     band_spread["g"],
                     band_spread["r"],
                     band_spread["i"],
                     band_spread["z"],
-                    band_spread["Y"],
                     band_spread_err["g"],
                     band_spread_err["r"],
                     band_spread_err["i"],
                     band_spread_err["z"],
-                    band_spread_err["Y"],
                 )
             else:
                 return None

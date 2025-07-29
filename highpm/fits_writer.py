@@ -1,8 +1,7 @@
-import numpy as np
 import astropy.units as u
 import fitsio
-from cat_reader import *
-from gnomonic_plate2sky import *
+import numpy as np
+from gnomonic_plate2sky import gnomonic_plate2sky
 
 
 def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
@@ -46,24 +45,20 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
             ("r_mag", "f8"),
             ("i_mag", "f8"),
             ("z_mag", "f8"),
-            ("Y_mag", "f8"),
             ("g_n", "i4"),
             ("r_n", "i4"),
             ("i_n", "i4"),
             ("z_n", "i4"),
-            ("Y_n", "i4"),
             ("color", "f8"),
             ("color_err", "f8"),
             ("g_spread", "f8"),
             ("r_spread", "f8"),
             ("i_spread", "f8"),
             ("z_spread", "f8"),
-            ("Y_spread", "f8"),
             ("g_spread_err", "f8"),
             ("r_spread_err", "f8"),
             ("i_spread_err", "f8"),
             ("z_spread_err", "f8"),
-            ("Y_spread_err", "f8"),
         ]
 
         idx = range(len(pm_arr))
@@ -107,10 +102,7 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
 
         c_vypi = cov[:, 3, 4]
 
-        alpha = pm_arr[:, 1]
-
         chisqTotal = np.array(pm_arr[:, 2], dtype=np.float64)
-        t = pm_arr[:, 3]
         dof = np.array(pm_arr[:, 4], dtype=np.float64)
         nClip = np.array(pm_arr[:, 5], dtype=np.float64)
         members = pm_arr[:, 6]
@@ -120,28 +112,24 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
         r_mag = np.array(pm_arr[:, 9], dtype=np.float64)
         i_mag = np.array(pm_arr[:, 10], dtype=np.float64)
         z_mag = np.array(pm_arr[:, 11], dtype=np.float64)
-        Y_mag = np.array(pm_arr[:, 12], dtype=np.float64)
 
-        color = np.array(pm_arr[:, 13], dtype=np.float64)
-        color_err = np.array(pm_arr[:, 14], dtype=np.float64)
+        color = np.array(pm_arr[:, 12], dtype=np.float64)
+        color_err = np.array(pm_arr[:, 13], dtype=np.float64)
 
-        g_n = np.array(pm_arr[:, 15], dtype=np.float64)
-        r_n = np.array(pm_arr[:, 16], dtype=np.float64)
-        i_n = np.array(pm_arr[:, 17], dtype=np.float64)
-        z_n = np.array(pm_arr[:, 18], dtype=np.float64)
-        Y_n = np.array(pm_arr[:, 19], dtype=np.float64)
+        g_n = np.array(pm_arr[:, 14], dtype=np.float64)
+        r_n = np.array(pm_arr[:, 15], dtype=np.float64)
+        i_n = np.array(pm_arr[:, 16], dtype=np.float64)
+        z_n = np.array(pm_arr[:, 17], dtype=np.float64)
 
-        g_spread = np.array(pm_arr[:, 20], dtype=np.float64)
-        r_spread = np.array(pm_arr[:, 21], dtype=np.float64)
-        i_spread = np.array(pm_arr[:, 22], dtype=np.float64)
-        z_spread = np.array(pm_arr[:, 23], dtype=np.float64)
-        Y_spread = np.array(pm_arr[:, 24], dtype=np.float64)
+        g_spread = np.array(pm_arr[:, 18], dtype=np.float64)
+        r_spread = np.array(pm_arr[:, 19], dtype=np.float64)
+        i_spread = np.array(pm_arr[:, 20], dtype=np.float64)
+        z_spread = np.array(pm_arr[:, 21], dtype=np.float64)
 
-        g_spread_err = np.array(pm_arr[:, 25], dtype=np.float64)
-        r_spread_err = np.array(pm_arr[:, 26], dtype=np.float64)
-        i_spread_err = np.array(pm_arr[:, 27], dtype=np.float64)
-        z_spread_err = np.array(pm_arr[:, 28], dtype=np.float64)
-        Y_spread_err = np.array(pm_arr[:, 29], dtype=np.float64)
+        g_spread_err = np.array(pm_arr[:, 22], dtype=np.float64)
+        r_spread_err = np.array(pm_arr[:, 23], dtype=np.float64)
+        i_spread_err = np.array(pm_arr[:, 24], dtype=np.float64)
+        z_spread_err = np.array(pm_arr[:, 25], dtype=np.float64)
 
         data = [
             idx,
@@ -176,24 +164,20 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
             r_mag,
             i_mag,
             z_mag,
-            Y_mag,
             g_n,
             r_n,
             i_n,
             z_n,
-            Y_n,
             color,
             color_err,
             g_spread,
             r_spread,
             i_spread,
             z_spread,
-            Y_spread,
             g_spread_err,
             r_spread_err,
             i_spread_err,
             z_spread_err,
-            Y_spread_err,
         ]
 
         tbl = np.zeros(len(idx), dtype=column_dtypes)
@@ -221,7 +205,7 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
 
         detection_tbl = np.concatenate(detection_tbl_list, axis=0)
 
-        if outputname == None:
+        if outputname is None:
             fitsio.write(
                 filename[:-5] + "_" + mtype + "_movers.fits",
                 tbl,
