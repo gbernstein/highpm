@@ -1,4 +1,3 @@
-import astropy.io.fits as pf
 import numpy as np
 from astropy.table import QTable
 
@@ -27,7 +26,7 @@ def clean_cat(catname):
         cleancat = cleancat[
             np.abs(cleancat["SPREAD_MODEL"]) < 3 * cleancat["SPREADERR_MODEL"]
         ]
-    except:
+    except KeyError:
         cleancat = catname
         print("No Spead Model cleaning...")
     return cleancat

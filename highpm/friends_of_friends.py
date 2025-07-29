@@ -1,13 +1,9 @@
-import numpy as np
-from scipy import spatial
-
-
 def find_friend(data, length, cores=None):
-    '''
-    Uses scipy's kDTree functionalities to find all friends 
+    """
+    Uses scipy's kDTree functionalities to find all friends
     (points within a given distance of each other)
-    '''
-    if cores == None:
+    """
+    if cores is None:
         return data.query_ball_tree(data, length)
     else:
         return data.query_ball_point(data.data, length, workers=cores)
