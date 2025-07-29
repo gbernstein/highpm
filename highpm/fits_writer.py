@@ -1,6 +1,6 @@
 import numpy as np
 import astropy.units as u
-from astropy.table import vstack, QTable
+import fitsio
 from cat_reader import *
 from gnomonic_plate2sky import *
 
@@ -13,82 +13,73 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
 
     if fittype == "fit5d":
 
-        column_names = [
-            "idx",
-            "mtype",
-            "xi",
-            "eta",
-            "ra",
-            "dec",
-            "pm",
-            "pmra",
-            "pmdec",
-            "parallax",
-            #     'alpha',
-            "chisqTotal",
-            #     't',
-            "dof",
-            "nClip",
-            #     'members',
-            #     'clipped'
-            "c_xx",
-            "c_yy",
-            "c_vxvx",
-            "c_vyvy",
-            "c_pipi",
-            "c_xy",
-            "c_xvx",
-            "c_xvy",
-            "c_xpi",
-            "c_yvx",
-            "c_yvy",
-            "c_ypi",
-            "c_vxvy",
-            "c_vxpi",
-            "c_vypi",
-            "g_mag",
-            "r_mag",
-            "i_mag",
-            "z_mag",
-            "Y_mag",
-            "g_i_mag",
-            "g_n",
-            "r_n",
-            "i_n",
-            "z_n",
-            "Y_n",
-            "g_spread",
-            "r_spread",
-            "i_spread",
-            "z_spread",
-            "Y_spread",
-            "g_spread_err",
-            "r_spread_err",
-            "i_spread_err",
-            "z_spread_err",
-            "Y_spread_err",
+        column_dtypes = [
+            ("idx", "i4"),
+            ("mtype", "S10"),
+            ("xi", "f8"),
+            ("eta", "f8"),
+            ("ra", "f8"),
+            ("dec", "f8"),
+            ("pm", "f8"),
+            ("pmra", "f8"),
+            ("pmdec", "f8"),
+            ("parallax", "f8"),
+            ("chisqTotal", "f8"),
+            ("dof", "i4"),
+            ("nClip", "i4"),
+            ("c_xx", "f8"),
+            ("c_yy", "f8"),
+            ("c_vxvx", "f8"),
+            ("c_vyvy", "f8"),
+            ("c_pipi", "f8"),
+            ("c_xy", "f8"),
+            ("c_xvx", "f8"),
+            ("c_xvy", "f8"),
+            ("c_xpi", "f8"),
+            ("c_yvx", "f8"),
+            ("c_yvy", "f8"),
+            ("c_ypi", "f8"),
+            ("c_vxvy", "f8"),
+            ("c_vxpi", "f8"),
+            ("c_vypi", "f8"),
+            ("g_mag", "f8"),
+            ("r_mag", "f8"),
+            ("i_mag", "f8"),
+            ("z_mag", "f8"),
+            ("Y_mag", "f8"),
+            ("g_n", "i4"),
+            ("r_n", "i4"),
+            ("i_n", "i4"),
+            ("z_n", "i4"),
+            ("Y_n", "i4"),
+            ("color", "f8"),
+            ("color_err", "f8"),
+            ("g_spread", "f8"),
+            ("r_spread", "f8"),
+            ("i_spread", "f8"),
+            ("z_spread", "f8"),
+            ("Y_spread", "f8"),
+            ("g_spread_err", "f8"),
+            ("r_spread_err", "f8"),
+            ("i_spread_err", "f8"),
+            ("z_spread_err", "f8"),
+            ("Y_spread_err", "f8"),
         ]
 
         idx = range(len(pm_arr))
         ls_mtype = [mtype] * len(pm_arr)
 
         p_fits = np.vstack(pm_arr[:, 0])
-        cov = np.array([np.linalg.inv(i) for i in pm_arr[:, 1]])
+        cov = np.linalg.inv(np.stack(pm_arr[:, 1]))
 
         xi = np.array((p_fits[:, 0] * u.arcsec).to(u.deg))
         eta = np.array((p_fits[:, 1] * u.arcsec).to(u.deg))
 
-        # header = read_cat_header(filename)
-
-        # header["RA0"] = 53.94929167
-        # header["DEC0"] = -54.0466111
-
-        # ra0 = header["RA0"]
-        # dec0 = header["DEC0"]
-
+        # !!!!!!!!!!!!!!!! TEMPORARY FOR SCULPTOR ONLY !!!!!!!!!!!!!!!!!!!!!!!!
+        # This is the center of the gnomonic projection for Sculptor
         ra0 = 15.1083
         dec0 = -33.7186
-
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         ra, dec = gnomonic_plate2sky(xi, eta, ra0, dec0) * u.deg
         pmra = (p_fits[:, 2] * u.arcsec / u.year).to(u.mas / u.year)
@@ -116,18 +107,8 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
 
         c_vypi = cov[:, 3, 4]
 
-        # ra_err = (np.sqrt(cov[:,0,0])*u.arcsec).to(u.deg)
-        # dec_err = (np.sqrt(cov[:,1,1])*u.arcsec).to(u.deg)
-
-        # pmra    = (p_fits[:,2]*u.arcsec/u.year).to(u.mas/u.year)
-        # pmra_err = (np.sqrt(cov[:,2,2])*u.arcsec/u.year).to(u.mas/u.year)
-        # pmdec   = (p_fits[:,3]*u.arcsec/u.year).to(u.mas/u.year)
-        # pmdec_err = (np.sqrt(cov[:,3,3])*u.arcsec/u.year).to(u.mas/u.year)
-        # pm = np.hypot(pmra,pmdec)
-        # parallax = p_fits[:,4]
-        # parallax_err = np.sqrt(cov[:,4,4])
-
         alpha = pm_arr[:, 1]
+
         chisqTotal = np.array(pm_arr[:, 2], dtype=np.float64)
         t = pm_arr[:, 3]
         dof = np.array(pm_arr[:, 4], dtype=np.float64)
@@ -141,25 +122,26 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
         z_mag = np.array(pm_arr[:, 11], dtype=np.float64)
         Y_mag = np.array(pm_arr[:, 12], dtype=np.float64)
 
-        g_n = np.array(pm_arr[:, 13], dtype=np.float64)
-        r_n = np.array(pm_arr[:, 14], dtype=np.float64)
-        i_n = np.array(pm_arr[:, 15], dtype=np.float64)
-        z_n = np.array(pm_arr[:, 16], dtype=np.float64)
-        Y_n = np.array(pm_arr[:, 17], dtype=np.float64)
+        color = np.array(pm_arr[:, 13], dtype=np.float64)
+        color_err = np.array(pm_arr[:, 14], dtype=np.float64)
 
-        color = np.array(pm_arr[:, 18], dtype=np.float64)
+        g_n = np.array(pm_arr[:, 15], dtype=np.float64)
+        r_n = np.array(pm_arr[:, 16], dtype=np.float64)
+        i_n = np.array(pm_arr[:, 17], dtype=np.float64)
+        z_n = np.array(pm_arr[:, 18], dtype=np.float64)
+        Y_n = np.array(pm_arr[:, 19], dtype=np.float64)
 
-        g_spread = np.array(pm_arr[:, 19], dtype=np.float64)
-        r_spread = np.array(pm_arr[:, 20], dtype=np.float64)
-        i_spread = np.array(pm_arr[:, 21], dtype=np.float64)
-        z_spread = np.array(pm_arr[:, 22], dtype=np.float64)
-        Y_spread = np.array(pm_arr[:, 23], dtype=np.float64)
+        g_spread = np.array(pm_arr[:, 20], dtype=np.float64)
+        r_spread = np.array(pm_arr[:, 21], dtype=np.float64)
+        i_spread = np.array(pm_arr[:, 22], dtype=np.float64)
+        z_spread = np.array(pm_arr[:, 23], dtype=np.float64)
+        Y_spread = np.array(pm_arr[:, 24], dtype=np.float64)
 
-        g_spread_err = np.array(pm_arr[:, 24], dtype=np.float64)
-        r_spread_err = np.array(pm_arr[:, 25], dtype=np.float64)
-        i_spread_err = np.array(pm_arr[:, 26], dtype=np.float64)
-        z_spread_err = np.array(pm_arr[:, 27], dtype=np.float64)
-        Y_spread_err = np.array(pm_arr[:, 28], dtype=np.float64)
+        g_spread_err = np.array(pm_arr[:, 25], dtype=np.float64)
+        r_spread_err = np.array(pm_arr[:, 26], dtype=np.float64)
+        i_spread_err = np.array(pm_arr[:, 27], dtype=np.float64)
+        z_spread_err = np.array(pm_arr[:, 28], dtype=np.float64)
+        Y_spread_err = np.array(pm_arr[:, 29], dtype=np.float64)
 
         data = [
             idx,
@@ -172,13 +154,9 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
             pmra,
             pmdec,
             parallax,
-            #     alpha,
             chisqTotal,
-            #     t,
             dof,
             nClip,
-            #     members,
-            #     clipped
             c_xx,
             c_yy,
             c_vxvx,
@@ -205,6 +183,7 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
             z_n,
             Y_n,
             color,
+            color_err,
             g_spread,
             r_spread,
             i_spread,
@@ -217,29 +196,44 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
             Y_spread_err,
         ]
 
-        tbl = QTable(names=column_names, data=data)
+        tbl = np.zeros(len(idx), dtype=column_dtypes)
 
-        detection_column_names = ["idx", "detections", "clipped"]
+        for i, col in enumerate(column_dtypes):
+            tbl[col[0]] = data[i]
 
-        detection_tbl = QTable(names=detection_column_names, dtype=["i4", "i4", "i4"])
+        detection_column_dtypes = [
+            ("idx", "i4"),
+            ("detections", "i4"),
+            ("clipped", "?"),
+        ]
+
+        detection_tbl_list = []
+
         for i in idx:
             clipbool = len(members[i]) * [False] + len(clipped[i]) * [True]
             detections = np.hstack((members[i], clipped[i]))
-            temp_tbl = QTable(
-                data=[[i] * len(detections), detections, clipbool],
-                names=detection_column_names,
-                dtype=["i4", "i4", "i4"],
-            )
 
-            detection_tbl = vstack([detection_tbl, temp_tbl])
+            temp_data = np.array(
+                list(zip([i] * len(detections), detections, clipbool)),
+                dtype=detection_column_dtypes,
+            )
+            detection_tbl_list.append(temp_data)
+
+        detection_tbl = np.concatenate(detection_tbl_list, axis=0)
 
         if outputname == None:
-            tbl.write(filename[:-4] + "_" + mtype + "_movers.fits", overwrite=True)
-            detection_tbl.write(
-                filename[:-4] + "_" + mtype + "_detections.fits", overwrite=True
+            fitsio.write(
+                filename[:-5] + "_" + mtype + "_movers.fits",
+                tbl,
+                clobber=True,
             )
-        else:
-            tbl.write(outputname + ".fits", overwrite=True)
-            detection_tbl.write(outputname + "_detections.fits", overwrite=True)
-    return tbl
+            fitsio.write(
+                filename[:-5] + "_" + mtype + "_detections.fits",
+                detection_tbl,
+                clobber=True,
+            )
 
+        else:
+            fitsio.write(outputname + ".fits", tbl, clobber=True)
+            fitsio.write(outputname + "_detections.fits", detection_tbl, clobber=True)
+    return tbl
