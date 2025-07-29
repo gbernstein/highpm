@@ -3,27 +3,22 @@
 
 from __future__ import print_function
 
-import argparse
-import os
+# import argparse
+# import os
 import sys
 from functools import partial
 from multiprocessing import Pool
 
 import astropy.units as u
 import numpy as np
-import scipy.ndimage
 import scipy.spatial as spspace
 import tqdm
-from astropy.table import Column
-from cat_reader import *
-from fits_writer import *
-from friends_of_friends import *
-from pixmappy import DESMaps
-from pmfit import *
-from scipy.ndimage import gaussian_filter
-import sklearn
-from sklearn.cluster import HDBSCAN, DBSCAN
+from cat_reader import clean_cat, read_cat_data, read_cat_header
+from fits_writer import output_fits
+from friends_of_friends import find_friend, friends_of_friends
+from pmfit import err2cov, fit5d
 from scipy.sparse import coo_matrix
+from sklearn.cluster import DBSCAN
 
 n_detections = 5
 
@@ -91,143 +86,7 @@ def detections_for_removal(pm_arr, pm_lim, pm_err_lim):
     return removals
 
 
-# =============================================================================
-# Slow mover algorithm
-# =============================================================================
-
-
-def slow_movers(cat, linklength=0.25 / 3600.0, cores=1):
-    """
-    Identifies slow move candidates.
-
-    Parameters
-    ----------
-    cat :
-    linklength :
-    cores :
-
-    Returns
-    -------
-    slow_groups : list of lists
-    """
-
-    xi = cat["XI"]
-    eta = cat["ETA"]
-
-    slow_tree = arborist(xi, eta)
-    slow_friends = find_friend(slow_tree, linklength, cores)
-    slow_groups = friends_of_friends(slow_friends)
-    slow_obj = [i for i in slow_groups if len(i) >= n_detections]
-    return slow_obj
-
-
-# =============================================================================
-
-
-# =============================================================================
-# Modest mover algorithm
-# =============================================================================
-
-
-def normal_dist(x, mean, sd):
-    """
-    Normal Distribution
-
-    Parameters
-    ----------
-    x :
-    mean :
-    sd :
-
-    Returns
-    -------
-    prob_density : numpy.ndarray
-
-    """
-    prob_density = 1 / (np.sqrt(2 * np.pi) * sd) * np.exp(-0.5 * ((x - mean) / sd) ** 2)
-    return prob_density
-
-
-def centroid(data):
-    """
-    Centroid finders.
-
-    Parameters
-    ----------
-    data :
-
-    Returns
-    -------
-    cx :
-    cy :
-
-    """
-    h, w = np.shape(data)
-    x = np.arange(0, w)
-    y = np.arange(0, h)
-
-    X, Y = np.meshgrid(x, y)
-
-    cx = np.sum(X * data) / np.sum(data)
-    cy = np.sum(Y * data) / np.sum(data)
-
-    return cx, cy
-
-
-def peak_finder(velocity_image):
-    """
-    Peak finding algorithm.
-
-    Paramters
-    ---------
-    veloity_image :
-
-    Returns
-    -------
-    centroids :
-
-    """
-
-    velocity_image_thresh = velocity_image.copy()
-    velocity_image_blur = gaussian_filter(velocity_image_thresh, sigma=1)
-    velocity_image_thresh[velocity_image_blur < 0.9 * np.max(velocity_image_blur)] = 0
-
-    # now find the objects
-    labeled_image, number_of_objects = scipy.ndimage.label(velocity_image_thresh)
-
-    peak_slices = scipy.ndimage.find_objects(labeled_image)
-
-    centroids = np.zeros((0, 2))
-
-    for peak_slice in peak_slices:
-        dy, dx = peak_slice
-        x, y = dx.start, dy.start
-        cx, cy = centroid(velocity_image_thresh[peak_slice])
-        centroids = np.vstack(
-            (centroids, np.array([((x + cx) - 100) / 50, ((y + cy) - 60) / 40]))
-        )
-
-    return centroids
-
-
 def filter_list(L):
-    """
-    List filter removes lists that are subsets of other lists.
-
-    Parameters
-    ----------
-    L : list of lists
-
-    Returns
-    -------
-    Cleaned list
-
-    """
-
-    return [x for x in L if not any(set(x) <= set(y) for y in L if x is not y)]
-
-
-def filter_list1(L):
     sets = {frozenset(e) for e in L}
     us = []
     for e in sets:
@@ -238,194 +97,8 @@ def filter_list1(L):
     return us
 
 
-def object_finder(sample, t_i, pos_i, pos_err_i):
-    """
-    Identifies modest moving objects.
-
-    Parameters
-    ----------
-    sample :
-    t_i :
-    pos_i :
-    pos_err_i :
-
-    Returns
-    -------
-    centroids :
-    obj_list : list of lists
-
-    """
-
-    velocity_image = np.zeros((0, 200))
-    for v in np.linspace(-1.5, 1.5, 120):
-        sample_gaussians = np.zeros((0, 200))
-        pos = np.linspace(-2, 2, 200)
-        for i in range(len(pos_i)):
-            norm_i = normal_dist(pos, pos_i[i] + t_i[i] * v, pos_err_i[i])
-            sample_gaussians = np.vstack((sample_gaussians, norm_i))
-        sample_distribution = np.sum(sample_gaussians, axis=0)
-        velocity_image = np.vstack((velocity_image, sample_distribution))
-
-    centroids = peak_finder(velocity_image)
-
-    obj_list = []
-    for i in centroids:
-        residuals = abs(pos_i + i[1] * t_i - i[0])
-        obj_list += [
-            [sample[j] for j in range(len(sample)) if residuals[j] < 3 * pos_err_i[j]]
-        ]
-
-    return centroids, obj_list
-
-
-def modest_movers(sample, cat):
-    """
-    Modest mover algorithm.
-
-    Parameters
-    ----------
-    sample :
-    cat :
-
-    Returns
-    -------
-    obj_list : list of lists
-    """
-
-    sample = list(sample)
-    if len(sample) >= n_detections:
-        t_0 = np.median(cat["MJD"][sample])
-        t_i = (cat["MJD"][sample] - t_0) / 365.2425
-
-        a = np.array(cat["ERRAWIN_WORLD"][sample]) * 3600.0
-        b = np.array(cat["ERRAWIN_WORLD"][sample]) * 3600.0
-
-        a = np.hypot(a, 0.1)
-        b = np.hypot(b, 0.1)
-
-        # turb_aa = np.array(cat["TURBERRA"][sample]) * 3600**2
-        # turb_bb = np.array(cat["TURBERRB"][sample]) * 3600**2
-        # turb_ab = np.array(cat["TURBERRAB"][sample]) * 3600**2
-        #
-        # turb_ee = turb_aa - turb_bb
-
-        np.seterr(divide="ignore", invalid="ignore")
-
-        # turb_pa = 0.5 * np.arctan(2 * np.divide(turb_ab, turb_ee))
-        # turb_pa[np.isnan(turb_pa)] = 0
-        # turb_sig_aa = 0.5 * (turb_aa + turb_bb - np.sqrt(turb_ee**2 + 4 * turb_ab**2))
-        # turb_sig_bb = 0.5 * (turb_aa + turb_bb + np.sqrt(turb_ee**2 + 4 * turb_ab**2))
-
-        pa = np.zeros_like(a)
-        # pa = np.array(cat["ERRTHETAWIN_J2000"][sample]) * np.pi / 180.0  # in radians
-        # Convert to cov
-        ee = a * a - b * b
-        cov_xy = (
-            np.array(
-                [
-                    a * a + b * b + ee * np.cos(pa),
-                    a * a + b * b - ee * np.cos(pa),
-                    ee * np.sin(pa),
-                ]
-            ).T
-            / 2.0
-        )
-
-        # turb_cov_xy = np.array(
-        #     [
-        #         turb_sig_aa + turb_sig_bb + turb_ee * np.cos(turb_pa),
-        #         turb_sig_aa + turb_sig_bb - turb_ee * np.cos(turb_pa),
-        #         turb_ee * np.sin(turb_pa),
-        #     ]
-        # ).T
-
-        cov_xy = cov_xy  # + turb_cov_xy
-
-        # =============== RA =========================
-
-        ra_0 = np.mean(cat["XI"][sample])
-
-        ra_i = 3600 * (cat["XI"][sample] - ra_0)
-        ra_err_i = np.sqrt(cov_xy[:, 0])
-
-        ra_centroids, ra_obj_list = object_finder(sample, t_i, ra_i, ra_err_i)
-
-        # =============== DEC ========================
-
-        dec_0 = np.mean(cat["ETA"][sample])
-
-        dec_i = 3600 * (cat["ETA"][sample] - dec_0)
-        dec_err_i = np.sqrt(cov_xy[:, 1])
-
-        dec_centroids, dec_obj_list = object_finder(sample, t_i, dec_i, dec_err_i)
-
-        obj_list = []
-        for i in ra_obj_list:
-            for j in dec_obj_list:
-                temp_obj_list = list(set(i).intersection(set(j)))
-                if len(temp_obj_list) >= n_detections:
-                    obj_list += temp_obj_list
-
-        obj_list = [list(obj_list)]
-        # print(obj_list)
-        obj_list = filter_list1(obj_list)
-        # print(obj_list)
-        return obj_list
-
-    else:
-        return None
-
-
-def modest_fitter(cat, fitter, linklength=1.0 / 3600.0, cores=1):
-    """
-    Modest mover fitting.
-
-    Parameters
-    ----------
-    cat :
-    linklength :
-    cores :
-
-    Returns
-    -------
-    modest_pm_arr :
-    """
-
-    xi = cat["XI"]
-    eta = cat["ETA"]
-
-    modest_tree = arborist(xi, eta)
-    modest_friends = find_friend(modest_tree, linklength, cores)
-    modest_groups = friends_of_friends(modest_friends)
-
-    modest_groups = [i for i in modest_groups if len(i) >= n_detections]
-
-    modest_pm_ls = multithreader(
-        modest_movers,
-        modest_groups,
-        cat,
-        cores,
-        chunksize=1000,
-    )
-
-    modest_pm_ls = [i for i in modest_pm_ls if i != None]
-    modest_pm_obj = []
-    for i in modest_pm_ls:
-        for j in i:
-            modest_pm_obj += [j]
-
-    modest_pm_obj = [i for i in modest_pm_obj if len(i) >= n_detections]
-
-    modest_pm_arr = multi_fit5d(fitter, modest_pm_obj, cat, cores, chunksize=1000)
-
-    return modest_pm_arr
-
-
 # =============================================================================
-
-
-# =============================================================================
-# New Modest Mover algorithm
+# New Slow / Modest Mover algorithm
 # =============================================================================
 
 
@@ -499,38 +172,6 @@ def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
         metric="precomputed",
     ).fit(D)
 
-    # import matplotlib.pyplot as plt
-
-    # fig, ax = plt.subplots(1, 2, figsize=(16, 6), sharex=True, sharey=True)
-    # sc0 = ax[0].scatter(
-    #     X[:, 0],
-    #     X[:, 1],
-    #     c=clustering.labels_,
-    #     cmap="managua",
-    #     s=10,
-    #     vmin=-1,
-    #     vmax=2,
-    # )
-    # ax[0].set_title("Position")
-    # ax[0].set_xlabel(r"$X / \sigma_X$")
-    # ax[0].set_ylabel(r"$Y / \sigma_Y$")
-    # plt.colorbar(sc0, ax=ax[0], label="Cluster ID")
-    # sc1 = ax[1].scatter(
-    #     X[:, 2],
-    #     X[:, 3],
-    #     c=clustering.labels_,
-    #     cmap="managua",
-    #     s=10,
-    #     vmin=-1,
-    #     vmax=2,
-    # )
-    # ax[1].set_title("Velocity")
-    # ax[1].set_xlabel(r"$Vx / \sigma_{Vx}$")
-    # ax[1].set_ylabel(r"$Vy / \sigma_{Vy}$")
-    # plt.colorbar(sc1, ax=ax[1], label="Cluster ID")
-    # plt.tight_layout()
-    # plt.show()
-
     obj_list = []
 
     for cluster_id in np.unique(clustering.labels_):
@@ -545,7 +186,7 @@ def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
     if len(obj_list) == 0:
         return None
 
-    obj_list = filter_list1(obj_list)
+    obj_list = filter_list(obj_list)
     return obj_list
 
 
@@ -557,9 +198,6 @@ def new_modest_fitter(cat, fitter, linklength=1.0 / 3600.0, cores=1):
 
     modest_groups = [i for i in modest_groups if len(i) >= n_detections]
 
-    # for i in modest_groups:
-    #     new_modest_mover(i, cat)
-
     modest_pm_ls = multithreader(
         new_modest_mover,
         modest_groups,
@@ -568,7 +206,7 @@ def new_modest_fitter(cat, fitter, linklength=1.0 / 3600.0, cores=1):
         chunksize=1000,
     )
 
-    modest_pm_ls = [i for i in modest_pm_ls if i != None]
+    modest_pm_ls = [i for i in modest_pm_ls if i is not None]
     modest_pm_obj = []
     for i in modest_pm_ls:
         for j in i:
@@ -691,15 +329,7 @@ def fast_movers(
     cov = cov[pm_keep]
     fast_posvel = fast_posvel[pm_keep]
 
-    # fast_data = np.hstack((fast_posvel[:, :2], (2) * fast_posvel[:, 2:4]))
     print("prepped for 4d tree...")
-
-    # fast_4dtree = spspace.cKDTree(fast_data)
-    # print("4d tree planted...")
-    # fast_friends = find_friend(fast_4dtree, linklength, cores)
-    # print(str(len(fast_friends)) + " fast_friends found...")
-    # fast_objects = friends_of_friends(fast_friends)
-
     print(len(fast_posvel))
 
     fast_4dtree = spspace.KDTree(fast_posvel[:, :4])
@@ -768,16 +398,14 @@ def fast_movers(
             temp_object += detection_pair
         fast_obj += [list(np.unique(temp_object))]
     print("fast objects grouped...")
-    # fast_obj = np.unique(np.asanyarray(fast_obj,dtype=object))
     fast_candidates = [i for i in fast_obj if len(i) > n_detections]
-    # fast_sets = [set(i) for i in fast_obj]
     print("fast objects culled...")
 
     fast_pm_ls = multithreader(
         new_modest_mover, fast_candidates, cat, cores, chunksize=1000
     )
 
-    fast_pm_ls = [i for i in fast_pm_ls if i != None]
+    fast_pm_ls = [i for i in fast_pm_ls if i is not None]
     fast_pm_obj = []
     for i in fast_pm_ls:
         for j in i:
@@ -785,93 +413,9 @@ def fast_movers(
 
     fast_pm_obj = [i for i in fast_pm_obj if len(i) >= n_detections]
 
-    # print("filtering fast objects...")
-    # fast_pm_obj = filter_list1(fast_pm_obj)
     print("fitting fast objects...")
     fast_pm_arr = multi_fit5d(fitter, fast_pm_obj, cat, cores, chunksize=1000)
-
-    # fast_obj_arr = np.zeros((len(fast_sets), len(cat)), dtype=bool)
-    # for i, s in enumerate(fast_sets):
-    #     fast_obj_arr[i, list(s)] = True
-
-    # for i, s in enumerate(fast_sets):
-    #     wrapped_arr = np.roll(fast_obj_arr, -i, axis=0)
-    #     and_arr = np.logical_and(fast_obj_arr, wrapped_arr)
-    #     subsets = np.argwhere(np.all(and_arr == fast_obj_arr, axis=1))
-    #     fast_obj_arr[subsets] = [fast_obj_arr[subsets], wrapped_arr[subsets]][
-    #         np.argmax(np.sum([fast_obj_arr, wrapped_arr], axis=1), axis=1)
-    #     ]
-
-    # fast_obj_arr = np.unique(fast_obj_arr, axis=0)
-    # fast_obj = [list(np.argwhere(i)) for i in fast_obj_arr]
-
-    # ========================== OLD METHOD ===================================
-    # import time
-
-    # start = time.time()
-
-    # fast_obj = [
-    #     l
-    #     for l, s in zip(fast_obj, fast_sets)
-    #     if not any(s < other for other in fast_sets)
-    # ]
-
-    # end = time.time()
-    # print(f"Fast object filtering took {end - start:.2f} seconds.")
-    # # fast_obj = list(set(tuple(x) for x in fast_obj))
-    # # print('fast objects prepped for filter...')
-    # # fast_obj = filter_list1(fast_obj)
-    # print("unique fast objects complete!")
-    # =========================================================================
-
-    # Sort by set size (largest first) to reduce comparisons
-    # import time
-
-    # start = time.time()
-    # sorted_pairs = sorted(zip(fast_obj, fast_sets), key=lambda pair: -len(pair[1]))
-    # fast_obj = []
-    # for i, (obj, s) in enumerate(sorted_pairs):
-    #     # Only check against larger sets (which come before in the sorted list)
-    #     if not any(s < sorted_pairs[j][1] for j in range(i)):
-    #         fast_obj.append(obj)
-
-    # end = time.time()
-    # print(f"Fast object filtering took {end - start:.2f} seconds.")
-    # print("unique fast objects complete!")
-
     return fast_pm_arr
-
-
-def mkimg(t_i, pos_i, pos_err_i, w, h, res):
-    """
-    Creates position - velocity image.
-
-    Parameters
-    ----------
-    t_i :
-    pos_i :
-    pos_err_i :
-    w :
-    h :
-    res :
-
-    Returns
-    -------
-    velocity_image :
-    """
-
-    velocity_image = np.zeros((0, w))
-    for v in np.linspace(-h / (2 * res), h / (2 * res), h):
-        sample_gaussians = np.zeros((0, w))
-        pos = np.linspace(-w / (2 * res), w / (2 * res), w)
-        for i in range(len(pos_i)):
-            norm_i = normal_dist(pos, pos_i[i] + t_i[i] * v, pos_err_i[i])
-            sample_gaussians = np.vstack((sample_gaussians, norm_i))
-        sample_distribution = np.sum(sample_gaussians, axis=0)
-        velocity_image = np.vstack((velocity_image, sample_distribution))
-
-    velocity_image = gaussian_filter(velocity_image, sigma=2)
-    return velocity_image
 
 
 def fast_checker(idx, cat, fast_cat):
@@ -920,120 +464,6 @@ def fast_checker(idx, cat, fast_cat):
     dec_0 = np.mean(temp_cat["ETA"])
 
     obj_lol = []
-
-    for _ in range(10):
-
-        if len(temp_cat) > n_detections:
-            sample = np.arange(len(temp_cat))
-            t_0 = np.median(temp_cat["MJD"])
-            t_i = (temp_cat["MJD"] - t_0) / 365.2425
-
-            a = np.array(temp_cat["ERRAWIN_WORLD"]) * 3600.0
-            b = np.array(temp_cat["ERRAWIN_WORLD"]) * 3600.0
-
-            a = np.hypot(a, 0.1)
-            b = np.hypot(b, 0.1)
-
-            # turb_aa = np.array(temp_cat["TURBERRA"]) * 3600**2
-            # turb_bb = np.array(temp_cat["TURBERRB"]) * 3600**2
-            # turb_ab = np.array(temp_cat["TURBERRAB"]) * 3600**2
-
-            # turb_ee = turb_aa - turb_bb
-
-            np.seterr(divide="ignore", invalid="ignore")
-
-            # turb_pa = 0.5 * np.arctan(2 * np.divide(turb_ab, turb_ee))
-            # turb_pa[np.isnan(turb_pa)] = 0
-            # turb_sig_aa = 0.5 * (
-            #     turb_aa + turb_bb - np.sqrt(turb_ee**2 + 4 * turb_ab**2)
-            # )
-            # turb_sig_bb = 0.5 * (
-            #     turb_aa + turb_bb + np.sqrt(turb_ee**2 + 4 * turb_ab**2)
-            # )
-
-            pa = np.zeros_like(a)
-            # pa = np.array(temp_cat["ERRTHETAWIN_J2000"]) * np.pi / 180.0  # in radians
-            # Convert to cov
-            ee = a * a - b * b
-            cov_xy = (
-                np.array(
-                    [
-                        a * a + b * b + ee * np.cos(pa),
-                        a * a + b * b - ee * np.cos(pa),
-                        ee * np.sin(pa),
-                    ]
-                ).T
-                / 2.0
-            )
-
-            # turb_cov_xy = np.array(
-            #     [
-            #         turb_sig_aa + turb_sig_bb + turb_ee * np.cos(turb_pa),
-            #         turb_sig_aa + turb_sig_bb - turb_ee * np.cos(turb_pa),
-            #         turb_ee * np.sin(turb_pa),
-            #     ]
-            # ).T
-
-            cov_xy = cov_xy  # + turb_cov_xy
-
-            # =============== RA =========================
-
-            ra_i = 3600 * (temp_cat["XI"] - ra_0)
-            ra_err_i = np.sqrt(cov_xy[:, 0])
-
-            ra_velocity_image = mkimg(t_i, ra_i, ra_err_i, w, h, res)
-
-            ra_centroids = np.array(
-                np.unravel_index(
-                    np.argmax(ra_velocity_image, axis=None), ra_velocity_image.shape
-                )
-            )
-            ra_centroids_1 = (ra_centroids[1] - w / 2) / res
-            ra_centroids_0 = (ra_centroids[0] - h / 2) / res
-
-            ra_residuals = abs(ra_i + ra_centroids_0 * t_i - ra_centroids_1)
-            ra_obj_list = [
-                sample[j]
-                for j in range(len(sample))
-                if ra_residuals[j] < 3 * ra_err_i[j]
-            ]
-
-            # =============== DEC ========================
-
-            dec_i = 3600 * (temp_cat["ETA"] - dec_0)
-            dec_err_i = np.sqrt(cov_xy[:, 1])
-
-            dec_velocity_image = mkimg(t_i, dec_i, dec_err_i, w, h, res)
-
-            dec_centroids = np.array(
-                np.unravel_index(
-                    np.argmax(dec_velocity_image, axis=None), dec_velocity_image.shape
-                )
-            )
-            dec_centroids_1 = (dec_centroids[1] - w / 2) / res
-            dec_centroids_0 = (dec_centroids[0] - h / 2) / res
-
-            dec_residuals = abs(dec_i + dec_centroids_0 * t_i - dec_centroids_1)
-            dec_obj_list = [
-                sample[j]
-                for j in range(len(sample))
-                if dec_residuals[j] < 3 * dec_err_i[j]
-            ]
-
-            if len(ra_obj_list) == 0 and len(dec_obj_list) == 0:
-                break
-
-            obj_list = ra_obj_list
-            if (
-                np.max(ra_velocity_image) / (len(ra_obj_list) + 1)
-                < np.max(dec_velocity_image) / (len(dec_obj_list) + 1)
-                or len(ra_obj_list) == 0
-            ):
-                obj_list = dec_obj_list
-
-            obj_lol.append(list(temp_cat["ID"][obj_list]))
-
-            temp_cat.remove_rows(obj_list)
 
     return obj_lol
 
@@ -1098,7 +528,7 @@ def multi_fit5d(fitter, detections_groups, cat, cores=1, chunksize=1000):
     pm_list = multithreader(fitter, detections_groups, cat, cores, chunksize)
 
     # Remove fits that return None
-    clean_pm_list = [i for i in pm_list if i != None]
+    clean_pm_list = [i for i in pm_list if i is not None]
 
     # Convert list to array and discard list
     clean_pm_arr = np.array(clean_pm_list, dtype=object)
@@ -1132,38 +562,11 @@ if __name__ == "__main__":
 
     cat_copy = cat.copy()
 
-    # slow_detection_groups = slow_movers(cat, cores=my_cores)
-
     ra0 = 15.1083
     dec0 = -33.7186
 
     part_fit5d_no_add_err = partial(fit5d, additional_error=False)
     part_fit5d = partial(fit5d, additional_error=False)
-
-    # slow_pm_arr = multi_fit5d(
-    #     part_fit5d_no_add_err,
-    #     slow_detection_groups,
-    #     cat,
-    #     cores=my_cores,
-    #     chunksize=1000,
-    # )
-
-    # if len(slow_pm_arr) != 0:
-    #     slow_tbl = output_fits(slow_pm_arr, catname, "slow")
-
-    #     print(f"Writing {len(slow_tbl)} slow movers...")
-
-    #     slow_detections = detections_for_removal(slow_pm_arr, 100, 30)
-
-    #     cat.remove_rows(slow_detections)
-    # cat.write("pre_modest_" + catname, format="fits", overwrite=True)
-
-    # del slow_pm_arr
-    # del slow_tbl
-    # del slow_detections
-    # del slow_detection_groups
-
-    # cat = read_cat_data("pre_modest_" + catname)
 
     for _ in range(3):
         modest_pm_arr = new_modest_fitter(cat, part_fit5d, cores=my_cores)
@@ -1183,18 +586,6 @@ if __name__ == "__main__":
         del modest_tbl
         del modest_detections
 
-    # fast_detection_groups = fast_movers(cat, cores=my_cores)
-
-    # fast_pm_arr = multi_fit5d(
-    #     part_fit5d,
-    #     fast_detection_groups,
-    #     cat,
-    #     cores=my_cores,
-    #     chunksize=1000,
-    # )
-
-    # cat = read_cat_data("pre_fast3_" + catname)
-
     fast_pm_arr = fast_movers(cat, part_fit5d, cores=my_cores)
 
     if len(fast_pm_arr) != 0:
@@ -1203,39 +594,6 @@ if __name__ == "__main__":
         print(f"Writing {len(fast_tbl)} fast movers...")
 
     del fast_pm_arr
-
-    # fast_tbl = fast_tbl[fast_tbl["pm"] > 100 * u.mas / u.yr]
-
-    # ls_out = []
-    # part_fast_checker = partial(fast_checker, cat=cat_copy, fast_cat=fast_tbl)
-    # with Pool(processes=my_cores // 2) as pool:
-    #     for _ in tqdm.tqdm(
-    #         pool.imap_unordered(
-    #             part_fast_checker,
-    #             np.arange(len(fast_tbl)),
-    #             chunksize=100,
-    #         ),
-    #         total=len(fast_tbl),
-    #     ):
-    #         ls_out.append(_)
-    #         pass
-    # pool.close()
-    # pool.join()
-
-    # fast_checked_lol = [i for j in ls_out for i in j]
-
-    # fast_checked_arr = multi_fit5d(
-    #     part_fit5d,
-    #     fast_checked_lol,
-    #     cat_copy,
-    #     cores=my_cores // 2,
-    #     chunksize=100,
-    # )
-
-    # if len(fast_checked_arr) != 0:
-    #     fast_checked_tbl = output_fits(fast_checked_arr, catname, "fast_checked")
-
-    #     print(f"Writing {len(fast_checked_tbl)} checked fast movers...")
 
     cat_copy.write("NEW_" + catname, format="fits", overwrite=True)
 
