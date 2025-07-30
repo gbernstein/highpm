@@ -15,25 +15,21 @@ from cat_reader import *
 
 
 def mktbl(cat,tilename,obj_type,obj_id,ra0,dec0,outdir=None):
-    """
-    Table maker.
+    """Table maker.
 
     Parameters
     ----------
-    cat : 
-    tilename : 
-    obj_type : 
-    obj_id : 
-    outdir : 
+    cat :
+    tilename :
+    obj_type :
+    obj_id :
+    outdir :
 
     Yeilds
     ------
     ./<outdir>/<tilename>.finalcut_<obj_type>_movers.fits
     ./<outdir>/<tilename>.finalcut_<obj_type>_detections.fits
-
     """
-
-
     data_cat = Table.read(cat)
 
     objects = tilename+".finalcut_"+obj_type+"_movers.fits"
@@ -62,19 +58,15 @@ def mktbl(cat,tilename,obj_type,obj_id,ra0,dec0,outdir=None):
         'c_vxvx',
         'c_vyvy',
         'c_pipi',
-
         'c_xy',
         'c_xvx',
         'c_xvy',
         'c_xpi',
-
         'c_yvx',
         'c_yvy',
         'c_ypi',
-
         'c_vxvy',
         'c_vxpi',
-
         'c_vypi'
     ]
 

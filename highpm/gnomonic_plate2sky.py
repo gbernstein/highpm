@@ -1,9 +1,30 @@
 import numpy as np
 
 def gnomonic_plate2sky(xi,eta,ra0,dec0):
-    # Converts plate coordinates (xi,eta)[deg] to sky coordinates (ra,dec)[deg]
-    # assuming (xi,eta) are the gnomonic projections of (ra,dec)
-    # centered at (ra0,dec0)
+    """Convert gnomonic projection plate coordinates to sky coordinates (RA, Dec).
+
+    Parameters
+    ----------
+    xi : float or array-like
+        Gnomonic projection x-coordinate(s) in degrees.
+    eta : float or array-like
+        Gnomonic projection y-coordinate(s) in degrees.
+    ra0 : float
+        Right ascension of the projection center in degrees.
+    dec0 : float
+        Declination of the projection center in degrees.
+    Returns
+    -------
+    ra : float or ndarray
+        Right ascension(s) corresponding to the input plate coordinates, in degrees.
+    dec : float or ndarray
+        Declination(s) corresponding to the input plate coordinates, in degrees.
+    Notes
+    -----
+    This function assumes small-angle approximations are not used and works for
+    general positions on the sky. The input coordinates can be scalars or arrays.
+    """
+    
 
     xi_rad = xi * np.pi/180.
     eta_rad = eta * np.pi/180.
