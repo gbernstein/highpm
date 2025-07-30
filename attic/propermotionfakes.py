@@ -25,15 +25,16 @@ def F_dec(ra_star,R_earth,ra_sun,dec_ecliptic,dec_star):
 
 
 def project_to_images(solution, survey, t_0):
-	'''
-	Projects all proper motion solutions to all DES images, and checks which ones fall inside a CCD in an approximate way
-	Arguments:
-	- solution: (n x 5) array with the 5D proper motion solution for n stars. Assumes order is (ra_0, dec_0, pm_ra, pm_dec, parallax). Values in degrees, mas/yr, 1/parsec (?)
-	- survey: (destnosim.DES) survey object containing information of all exposures in DES
-	- ra_0: (float, degrees) RA center of the tile
-	- dec_0 (float, degrees) DEC center of the tile
-	- t_0 (float, mjd) reference time for the proper motion solutions
-	'''
+	"""Projects all proper motion solutions to all DES images, and checks which
+ ones fall inside a CCD in an approximate way.
+
+ Arguments:
+ - solution: (n x 5) array with the 5D proper motion solution for n stars. Assumes order is (ra_0, dec_0, pm_ra, pm_dec, parallax). Values in degrees, mas/yr, 1/parsec (?)
+ - survey: (destnosim.DES) survey object containing information of all exposures in DES
+ - ra_0: (float, degrees) RA center of the tile
+ - dec_0 (float, degrees) DEC center of the tile
+ - t_0 (float, mjd) reference time for the proper motion solutions
+ """
 	year = 365.2425
 	ref_date = t_0
 	deg2mas = 3600000
@@ -148,15 +149,16 @@ def project_to_images(solution, survey, t_0):
 
 
 def simulate_detections(positions, survey):
-	'''
-	After positions are derived, uses information from magnitudes to check which detections would
-	be recovered by a given DES exposure and uses the combination of shot noise + turbulence
-	to generate positional offsets for all detections
-	Arguments:
-	- positions (astropy.table.Table): table created by project_to_images
-	- magnitudes (astropy.table.Table): table with magnitudes and same indexing as the proper motion solutions
-	- survey: (destnosim.DES) survey object containing information of all exposures in DES
-	'''
+	"""After positions are derived, uses information from magnitudes to check
+ which detections would be recovered by a given DES exposure and uses the
+ combination of shot noise + turbulence to generate positional offsets for all
+ detections.
+
+ Arguments:
+ - positions (astropy.table.Table): table created by project_to_images
+ - magnitudes (astropy.table.Table): table with magnitudes and same indexing as the proper motion solutions
+ - survey: (destnosim.DES) survey object containing information of all exposures in DES
+ """
 
 	tab = [] 
 	unif = destnosim.Uniform(0,1)

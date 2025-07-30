@@ -3,13 +3,10 @@
 
 from __future__ import print_function
 
-# import argparse
-# import os
 import sys
 from functools import partial
 from multiprocessing import Pool
 
-import astropy.units as u
 import numpy as np
 import scipy.spatial as spspace
 import tqdm
@@ -17,66 +14,84 @@ from cat_reader import clean_cat, read_cat_data, read_cat_header
 from fits_writer import output_fits
 from friends_of_friends import find_friend, friends_of_friends
 from pmfit import err2cov, fit5d
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.cluster import DBSCAN
 
 n_detections = 5
 
 
 def arborist(xi, eta):
-    """
-    Creates KD-Tree for possitions in tile coordinates.
+    """Builds a KDTree from the provided xi and eta coordinate arrays.
 
     Parameters
-    ---------
-    xi : astropy.table.column.Column
-        RA tile coordinates in pixels.
-    eta : astropy.table.column.Column
-        DEC tile coordinates in pixels.
+    ----------
+    xi : array_like
+        The x-coordinates of the points to be included in the KDTree.
+    eta : array_like
+        The y-coordinates of the points to be included in the KDTree.
 
     Returns
     -------
-    scipy.spatial.kdtree.KDTree
-        KD-Tree for all detections in a tile.
+    tree : spspace.KDTree
+        A KDTree object constructed from the input coordinates, which can be
+        used for efficient spatial queries.
 
+    Notes
+    -----
+    The input arrays `xi` and `eta` must have the same length. The function
+    stacks them as columns to form a 2D array of shape (n_points, 2).
     """
-
     tree = spspace.KDTree(np.array([xi, eta]).transpose())
     return tree
 
 
 def detections_for_removal(pm_arr, pm_lim, pm_err_lim):
-    """
-    Removes detections that have been included in a fit.
+    """Identifies and returns detections for removal based on proper motion limits. This
+    function processes an array of proper motion fit results and their covariances,
+    filtering out detections whose proper motion and associated errors fall below
+    specified thresholds.
 
     Parameters
     ----------
-    pm_arr :
-    pm_lim :
-    pm_err_lim :
-
+    pm_arr : np.ndarray
+        Array of shape (N, ...) where each element contains fit results and
+        covariance matrices for proper motion measurements.
+    pm_lim : float
+        The upper limit for the magnitude of proper motion (in mas/yr) below which
+        detections are considered for removal.
+    pm_err_lim : float
+        The upper limit for the error in proper motion (in mas/yr) for both RA and
+        Dec components.
     Returns
     -------
-    removals : numpy.ndarray
+    removals : np.ndarray
+        Array of detections that meet the criteria for removal. If no detections
+        meet the criteria, an empty array is returned.
+    Notes
+    -----
+    - The function multiplies proper motion values and errors by 1000 to convert
+      from arcsec/yr to mas/yr.
+    - If no detections meet the criteria, a message is printed and an empty array
+      is returned.
     """
 
     p_fits = np.vstack(pm_arr[:, 0])
     cov = np.array([np.linalg.inv(i) for i in pm_arr[:, 1]])
 
-    pmra = (p_fits[:, 2] * u.arcsec / u.year).to(u.mas / u.year)
-    pmra_err = (cov[:, 2, 2] * u.arcsec / u.year).to(u.mas / u.year)
-    pmdec = (p_fits[:, 3] * u.arcsec / u.year).to(u.mas / u.year)
-    pmdec_err = (cov[:, 3, 3] * u.arcsec / u.year).to(u.mas / u.year)
+    pmra = 1000 * p_fits[:, 2]
+    pmra_err = 1000 * cov[:, 2, 2]
+    pmdec = 1000 * p_fits[:, 3]
+    pmdec_err = 1000 * cov[:, 3, 3]
     try:
         removals = np.concatenate(
             [
                 pm_arr[i][6]
                 for i in range(len(pm_arr))
                 if np.logical_and(
-                    abs(pmra_err[i]) < pm_err_lim * u.mas / u.year,
-                    abs(pmdec_err[i]) < pm_err_lim * u.mas / u.year,
+                    abs(pmra_err[i]) < pm_err_lim,
+                    abs(pmdec_err[i]) < pm_err_lim,
                 )
-                and np.hypot(pmra[i], pmdec[i]) < pm_lim * u.mas / u.year
+                and np.hypot(pmra[i], pmdec[i]) < pm_lim
             ]
         )
     except ValueError:  # In case no removals are found
@@ -87,6 +102,25 @@ def detections_for_removal(pm_arr, pm_lim, pm_err_lim):
 
 
 def filter_list(L):
+    """Filters a list of lists by removing any list that is a proper subset of another.
+
+    Parameters
+    ----------
+    L : list of list
+        A list containing lists of hashable elements.
+
+    Returns
+    -------
+    us : list of list
+        A list of lists where each list is not a proper subset of any other list
+        in the input.
+
+    Examples
+    --------
+    >>> filter_list([[1, 2], [1], [2], [1, 2, 3]])
+    [[1, 2, 3], [1, 2]]
+    """
+
     sets = {frozenset(e) for e in L}
     us = []
     for e in sets:
@@ -97,61 +131,137 @@ def filter_list(L):
     return us
 
 
+def new_posvel(pairs, x, y, t, cov_xy, mjd_ref=57388.0):
+    """Compute average positions, velocities, and their covariances for pairs of
+    observations. Given pairs of observation indices, positions, times, and covariance
+    matrices, this function calculates the average position and velocity for each pair,
+    along with the associated covariance estimates. It also returns the time difference
+    for each pair and a boolean mask indicating valid pairs.
+
+    Parameters
+    ----------
+    pairs : ndarray of shape (N, 2)
+        Array of index pairs, where each row contains two indices (i, j)
+        referencing observations.
+    x : ndarray of shape (M,)
+        Array of x positions for each observation.
+    y : ndarray of shape (M,)
+        Array of y positions for each observation.
+    t : ndarray of shape (M,)
+        Array of observation times.
+    cov_xy : ndarray of shape (M, 2)
+        Covariance matrix for each observation, where the first column is the
+        variance in x and the second column is the variance in y.
+    mjd_ref : float, optional
+        Reference time (in MJD). Default is 57388.0.
+    Returns
+    -------
+    posvel : ndarray of shape (K, 4)
+        Array containing average x, average y, velocity in x, and velocity in y
+        for each valid pair.
+    cov : ndarray of shape (K, 4)
+        Covariance estimates for average x, average y, velocity in x, and
+        velocity in y for each valid pair.
+    dt : ndarray of shape (K,)
+        Absolute time differences between the pairs.
+    good_pairs : ndarray of bool, shape (N,)
+        Boolean mask indicating which pairs have non-zero time difference and
+        were used in the calculations.
+    Notes
+    -----
+    Pairs with zero time difference are excluded from the output.
+    """
+
+    i, j = pairs.T
+
+    dt = t[j] - t[i]
+    dx = x[j] - x[i]
+    dy = y[j] - y[i]
+
+    good_pairs = dt != 0
+    i = i[good_pairs]
+    j = j[good_pairs]
+    dx = dx[good_pairs]
+    dy = dy[good_pairs]
+    dt = dt[good_pairs]
+
+    vx = dx / dt
+    vy = dy / dt
+
+    cov_x = (cov_xy[i, 0] + cov_xy[j, 0]) / 4
+    cov_y = (cov_xy[i, 1] + cov_xy[j, 1]) / 4
+    cov_vx = (cov_xy[i, 0] + cov_xy[j, 0]) / dt**2
+    cov_vy = (cov_xy[i, 1] + cov_xy[j, 1]) / dt**2
+
+    cov = np.array([cov_x, cov_y, cov_vx, cov_vy]).T
+
+    avg_x = (x[i] + x[j]) / 2 - vx * ((t[i] + t[j]) / 2.0 - mjd_ref / 365.2425)
+    avg_y = (y[i] + y[j]) / 2 - vy * ((t[i] + t[j]) / 2.0 - mjd_ref / 365.2425)
+
+    posvel = np.array([avg_x, avg_y, vx, vy]).T
+
+    return posvel, cov, np.abs(dt), good_pairs
+
+
 # =============================================================================
 # New Slow / Modest Mover algorithm
 # =============================================================================
 
 
 def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
+    """Identifies clusters of moving objects in a catalog based on positional and
+    temporal data using DBSCAN clustering.
+
+    Parameters
+    ----------
+    sample : array-like
+        Indices or boolean mask selecting the subset of detections to analyze
+        from the catalog.
+    cat : dict-like
+        Catalog containing detection data. Must provide "XI", "ETA", and "MJD"
+        fields, as well as support for indexing with `sample`.
+    mjd_ref : float, optional
+        Reference Modified Julian Date for time normalization (default is 57388.0).
+    min_dt : float, optional
+        Minimum time difference (in years) required between detection pairs to
+        be considered for clustering (default is 0.8).
+    Returns
+    -------
+    obj_list : list of list of int or None
+        List of clusters, where each cluster is a list of detection indices
+        corresponding to a moving object. Returns None if no valid clusters are
+        found.
+    Notes
+    -----
+    - Uses DBSCAN clustering on a custom distance matrix derived from position
+      and velocity estimates.
+    - Requires external functions: `err2cov`, `new_posvel`, and `filter_list`.
+    - Assumes the catalog fields are in degrees and converts them to arcseconds.
+    """
 
     sample = np.array(sample)
 
-    x = cat["XI"][sample] * 3600.0
-    y = cat["ETA"][sample] * 3600.0
-    t = cat["MJD"][sample] / 365.2425
-
-    x -= np.mean(x)
-    y -= np.mean(y)
+    x = np.array(cat["XI"][sample]) * 3600.0
+    y = np.array(cat["ETA"][sample]) * 3600.0
+    t = np.array(cat["MJD"][sample]) / 365.2425
 
     cov = err2cov(cat[sample], additional_error=False)
-    x_err = np.sqrt(cov[:, 0])
-    y_err = np.sqrt(cov[:, 1])
 
-    t_sorted = np.argsort(t)
-    x = x[t_sorted]
-    y = y[t_sorted]
-    sample = sample[t_sorted]
-    x_err = x_err[t_sorted]
-    y_err = y_err[t_sorted]
-    t = t[t_sorted]
+    pairs = np.array(np.triu_indices(len(sample), k=1)).T
 
-    i, j = np.triu_indices(len(sample), k=1)
+    posvel, cov, dt, good_pairs = new_posvel(pairs, x, y, t, cov)
 
-    dt = t[j] - t[i]
     if np.all(dt < min_dt):
         return None
 
-    i = i[dt >= min_dt]
-    j = j[dt >= min_dt]
+    pairs = pairs[good_pairs]
+    pairs = pairs[dt >= min_dt]
+    posvel = posvel[dt >= min_dt]
+    cov = cov[dt >= min_dt]
     dt = dt[dt >= min_dt]
 
-    dx = x[j] - x[i]
-    dy = y[j] - y[i]
-
-    vx = dx / dt
-    vy = dy / dt
-
-    vx_err = np.hypot(x_err[i], x_err[j]) / dt
-    vy_err = np.hypot(y_err[i], y_err[j]) / dt
-
-    avg_x = (x[i] + x[j]) / 2 - vx * ((t[i] + t[j]) / 2.0 - mjd_ref / 365.2425)
-    avg_y = (y[i] + y[j]) / 2 - vy * ((t[i] + t[j]) / 2.0 - mjd_ref / 365.2425)
-
-    avg_x_err = np.hypot(x_err[i], x_err[j]) / 2
-    avg_y_err = np.hypot(y_err[i], y_err[j]) / 2
-
-    X = np.column_stack((avg_x, avg_y, vx, vy))
-    Sigma = np.column_stack((avg_x_err, avg_y_err, vx_err, vy_err))
+    X = posvel
+    Sigma = np.sqrt(cov)
 
     D = np.zeros((len(dt), len(dt)))
     for k in range(len(dt)):
@@ -163,7 +273,7 @@ def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
 
     D = np.sqrt(D)
 
-    indices = np.column_stack((sample[i], sample[j]))
+    indices = np.column_stack((sample[pairs[:, 0]], sample[pairs[:, 1]]))
 
     clustering = DBSCAN(
         eps=3,
@@ -191,6 +301,31 @@ def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
 
 
 def new_modest_fitter(cat, fitter, linklength=1.0 / 3600.0, cores=1):
+    """Fits proper motion models to groups of detections in a catalog using a friends-
+    of- friends algorithm and parallel processing.
+
+    Parameters
+    ----------
+    cat : dict or structured array
+        Catalog of detections, expected to contain at least "XI" and "ETA" fields.
+    fitter : callable
+        Fitting function or object to be used in the multi_fit5d step.
+    linklength : float, optional
+        Linking length (in degrees) for the friends-of-friends algorithm. Default is
+        1.0 / 3600.0.
+    cores : int, optional
+        Number of CPU cores to use for parallel processing. Default is 1.
+    Returns
+    -------
+    modest_pm_arr : array-like
+        Array of fitted proper motion parameters for the detected groups.
+    Notes
+    -----
+    Requires the following functions to be defined elsewhere: `arborist`,
+    `find_friend`, `friends_of_friends`, `multithreader`, `new_modest_mover`,
+    and `multi_fit5d`. The variable `n_detections` must also be defined in the
+    scope.
+    """
 
     modest_tree = arborist(cat["XI"], cat["ETA"])
     modest_friends = find_friend(modest_tree, linklength, cores)
@@ -224,123 +359,84 @@ def new_modest_fitter(cat, fitter, linklength=1.0 / 3600.0, cores=1):
 # =============================================================================
 
 
-def posvel(pair, cat):
-    """
-    Calculates position and velocity for (xi,eta) pairs.
-
-    Parameters
-    ----------
-    pairs :
-    cat :
-
-    Returns
-    -------
-    pair_posvel : numpy.ndarray
-
-    """
-
-    mjd_ref = 57388.0
-    first, second = pair
-    time_sep = (cat["MJD"][second] - cat["MJD"][first]) / 365.2425
-    pair_posvel = np.zeros((7))
-    if time_sep != 0:
-        vel_ra = (cat["XI"][second] - cat["XI"][first]) / time_sep
-        vel_dec = (cat["ETA"][second] - cat["ETA"][first]) / time_sep
-        avg_ra = (
-            np.mean(cat["XI"][[first, second]])
-            - vel_ra * (np.mean(cat["MJD"][[first, second]]) - mjd_ref) / 365.2425
-        )
-        avg_dec = (
-            np.mean(cat["ETA"][[first, second]])
-            - vel_dec * (np.mean(cat["MJD"][[first, second]]) - mjd_ref) / 365.2425
-        )
-
-        pair_posvel = np.array(
-            [avg_ra, avg_dec, vel_ra, vel_dec, time_sep, first, second]
-        )
-    return pair_posvel
-
-
 def fast_movers(
     cat,
     fitter,
-    pairlength=20.0 / 3600.0,
-    linklength=1.0 / 3600.0,
+    pairlength=20.0,
+    linklength=1.0,
     cores=1,
     min_pairs=4,
     min_sep=1.0,
     max_sep=20.0,
     eps=3.0,
 ):
-    """
-    Fast movers algorithm.
+    """Identify and fit fast-moving objects from a catalog of detections. This function
+    processes a catalog of astronomical detections to identify candidate fast-moving
+    objects (e.g., asteroids) by clustering detection pairs in position-velocity space
+    and fitting their motion parameters.
 
     Parameters
     ----------
-    cat :
-    linklength :
-    cores :
-    min_pairs :
-
+    cat : pandas.DataFrame or dict-like
+        Catalog of detections containing at least the columns "XI", "ETA", and "MJD".
+    fitter : callable
+        Function or object used to fit the motion parameters of candidate objects.
+    pairlength : float, optional
+        Maximum separation (in arcseconds) for initial detection pairing. Default is 20.0.
+    linklength : float, optional
+        Maximum distance in 4D position-velocity space for clustering. Default is 1.0.
+    cores : int, optional
+        Number of CPU cores to use for parallel processing. Default is 1.
+    min_pairs : int, optional
+        Minimum number of detection pairs required for a candidate object. Default is 4.
+    min_sep : float, optional
+        Minimum proper motion (in arcseconds/year) for candidate selection. Default is 1.0.
+    max_sep : float, optional
+        Maximum proper motion (in arcseconds/year) for candidate selection. Default is 20.0.
+    eps : float, optional
+        DBSCAN clustering threshold in 4D space. Default is 3.0.
     Returns
     -------
-    fast_obj : list of lists
+    fast_pm_arr : list
+        List of fitted parameter arrays for each identified fast-moving object.
+    Notes
+    -----
+    - Requires external functions: `err2cov`, `arborist`, `new_posvel`, `spspace.KDTree`,
+      `DBSCAN`, `multithreader`, `new_modest_mover`, and `multi_fit5d`.
+    - The catalog must provide columns for positions ("XI", "ETA") and times ("MJD").
+    - The function uses DBSCAN clustering to group detection pairs in position-velocity
+      space and fits motion models to each candidate object.
     """
-
-    xi = cat["XI"]
-    eta = cat["ETA"]
+    x = np.array(cat["XI"]) * 3600.0
+    y = np.array(cat["ETA"]) * 3600.0
+    t = np.array(cat["MJD"]) / 365.2425
 
     cov_xy = err2cov(cat, additional_error=False)
 
-    fast_tree = arborist(xi, eta)
-    print("fast_tree built...")
+    fast_tree = arborist(x, y)
     fast_pairs = fast_tree.query_pairs(r=pairlength)
     fast_pairs = np.array(list(fast_pairs))
-    print("fast_pairs generated...")
-    fast_posvel = multithreader(posvel, fast_pairs, cat, cores, chunksize=10000)
-    print("fast_posvel completed...")
-    fast_posvel = np.vstack(fast_posvel)
 
-    cov_vx = (cov_xy[fast_pairs[:, 0], 0] + cov_xy[fast_pairs[:, 1], 0]) / fast_posvel[
-        :, 4
-    ] ** 2
-    cov_vy = (cov_xy[fast_pairs[:, 0], 1] + cov_xy[fast_pairs[:, 1], 1]) / fast_posvel[
-        :, 4
-    ] ** 2
+    fast_posvel, cov, _, good_pairs = new_posvel(fast_pairs, x, y, t, cov_xy)
 
-    cov = np.zeros((len(fast_pairs), 4, 4))
-    cov[:, 0, 0] = (cov_xy[fast_pairs[:, 0], 0] + cov_xy[fast_pairs[:, 1], 0]) / 4
-    cov[:, 1, 1] = (cov_xy[fast_pairs[:, 0], 1] + cov_xy[fast_pairs[:, 1], 1]) / 4
-    cov[:, 0, 1] = cov[:, 1, 0] = (
-        cov_xy[fast_pairs[:, 0], 2] + cov_xy[fast_pairs[:, 1], 2]
-    ) / 4
-    cov[:, 2, 2] = cov_vx
-    cov[:, 3, 3] = cov_vy
+    fast_pairs = fast_pairs[good_pairs]
 
-    cov = cov[fast_posvel[:, 4] != 0]
-    fast_posvel = fast_posvel[fast_posvel[:, 4] != 0]
-
-    print("fast_posvel stacked...")
     pm_keep = np.logical_and(
-        np.hypot(fast_posvel[:, 2], fast_posvel[:, 3]) > min_sep / 3600,
-        np.hypot(fast_posvel[:, 2], fast_posvel[:, 3]) < max_sep / 3600,
+        np.hypot(fast_posvel[:, 2], fast_posvel[:, 3]) > min_sep,
+        np.hypot(fast_posvel[:, 2], fast_posvel[:, 3]) < max_sep,
     )
-    print("keepers found...")
+    fast_pairs = fast_pairs[pm_keep]
     cov = cov[pm_keep]
     fast_posvel = fast_posvel[pm_keep]
 
-    print("prepped for 4d tree...")
-    print(len(fast_posvel))
-
-    fast_4dtree = spspace.KDTree(fast_posvel[:, :4])
-    print("4d tree planted...")
+    fast_4dtree = spspace.KDTree(fast_posvel)
 
     fast_4dpairs = np.array(list(fast_4dtree.query_pairs(r=linklength)))
 
-    diff = fast_posvel[fast_4dpairs[:, 1], :4] - fast_posvel[fast_4dpairs[:, 0], :4]
-    invcov = np.linalg.inv(cov[fast_4dpairs[:, 0]] + cov[fast_4dpairs[:, 1]])
+    diff = fast_posvel[fast_4dpairs[:, 1]] - fast_posvel[fast_4dpairs[:, 0]]
+    invcov = 1.0 / (cov[fast_4dpairs[:, 0]] + cov[fast_4dpairs[:, 1]])
 
-    dist2 = np.einsum("...i,...ij,...j->...", diff, invcov, diff)
+    dist2 = np.sum(diff * invcov * diff, axis=1)
     dist = np.sqrt(dist2)
 
     mask = dist < eps
@@ -353,21 +449,20 @@ def fast_movers(
 
     D_sparse = coo_matrix(
         (data, (rows, cols)), shape=(len(fast_posvel), len(fast_posvel))
-    ).tocsr()
+    )
+
+    D_sparse = csr_matrix(D_sparse)
 
     # D_sparse = sklearn.neighbors.sort_graph_by_row_values(
     #     D_sparse, warn_when_not_sorted=False
     # )
 
-    print("distance matrix ready...")
     clustering = DBSCAN(
         eps=3,
         min_samples=4,
         n_jobs=cores,
         metric="precomputed",
     ).fit(D_sparse)
-
-    print("clustering complete...")
 
     obj_list = []
     indices = np.arange(len(fast_posvel))
@@ -383,23 +478,17 @@ def fast_movers(
         if len(cluster_indices) >= n_detections:
             obj_list.append(cluster_indices.tolist())
 
-    print("fast objects found...")
-
     fast_objects = obj_list
 
-    print(str(len(fast_objects)) + " friends of friends found...")
     hipm_object_sets = [i for i in fast_objects if len(i) > min_pairs]
-    print("high pm objects cleaned...")
     fast_obj = []
     for i in hipm_object_sets:
         temp_object = []
         for j in i:
-            detection_pair = [int(fast_posvel[j, -2]), int(fast_posvel[j, -1])]
+            detection_pair = [int(fast_pairs[j, 0]), int(fast_pairs[j, 1])]
             temp_object += detection_pair
         fast_obj += [list(np.unique(temp_object))]
-    print("fast objects grouped...")
     fast_candidates = [i for i in fast_obj if len(i) > n_detections]
-    print("fast objects culled...")
 
     fast_pm_ls = multithreader(
         new_modest_mover, fast_candidates, cat, cores, chunksize=1000
@@ -413,30 +502,14 @@ def fast_movers(
 
     fast_pm_obj = [i for i in fast_pm_obj if len(i) >= n_detections]
 
-    print("fitting fast objects...")
     fast_pm_arr = multi_fit5d(fitter, fast_pm_obj, cat, cores, chunksize=1000)
     return fast_pm_arr
 
 
 def fast_checker(idx, cat, fast_cat):
-    """
-    Fast mover checking algorithm.
-
-    Parameters
-    ----------
-    idx :
-    cat :
-    fast_cat :
-
-    Returns
-    -------
-    obj_lol : list of lists
-
-    """
-
     temp_idx_circ = (cat["XI"] - fast_cat["xi"][idx]) ** 2 + (
         cat["ETA"] - fast_cat["eta"][idx]
-    ) ** 2 < ((3 * u.yr / u.mas * fast_cat["pm"][idx] + 1000) / 3600000) ** 2
+    ) ** 2 < ((3 * fast_cat["pm"][idx] + 1000) / 3600000) ** 2
     temp_cat_circ = cat[temp_idx_circ]
 
     slope = fast_cat["pmdec"][idx] / fast_cat["pmra"][idx]
@@ -451,7 +524,7 @@ def fast_checker(idx, cat, fast_cat):
     )
     temp_cat = temp_cat_circ[temp_idx]
 
-    pm = (fast_cat["pm"][idx] / 1000).value
+    pm = fast_cat["pm"][idx] / 1000
 
     res = 30
     if pm < 0.1:
@@ -477,22 +550,32 @@ def fast_checker(idx, cat, fast_cat):
 
 
 def multithreader(func, lol, cat, cores=1, chunksize=1000):
-    """
-    General purpose multithreader with progress bar.
+    """Executes a function in parallel across multiple processes using a pool.
 
     Parameters
     ----------
-    func :
-    lol :
-    cat :
-    cores :
+    func : callable
+        The function to apply to each element of `lol`. Must accept an element
+        from `lol` as its first argument and `cat` as a keyword argument.
+    lol : list
+        List of elements to process in parallel.
+    cat : any
+        Additional argument to pass to `func` as a keyword argument.
+    cores : int, optional
+        Number of worker processes to use (default is 1).
+    chunksize : int, optional
+        Number of tasks to assign to each worker at a time (default is 1000).
 
     Returns
     -------
-    ls_out :
+    ls_out : list
+        List of results returned by applying `func` to each element in `lol`.
 
+    Notes
+    -----
+    Uses `multiprocessing.Pool` for parallel execution and `tqdm` for progress
+    display. The function is partially applied with the `cat` argument.
     """
-
     ls_out = []
     partial_func = partial(func, cat=cat)
     with Pool(processes=cores) as pool:
@@ -508,20 +591,26 @@ def multithreader(func, lol, cat, cores=1, chunksize=1000):
 
 
 def multi_fit5d(fitter, detections_groups, cat, cores=1, chunksize=1000):
-    """
-    5-dimensional fitting multithreader.
+    """Applies a 5D fitter to groups of detections using multithreading.
 
     Parameters
     ----------
-    fitter :
-    detections_groups :
-    cat :
-    cores :
-
+    fitter : callable
+        A function or callable object that performs fitting on a group of
+        detections.
+    detections_groups : iterable
+        An iterable of detection groups to be processed by the fitter.
+    cat : object
+        Catalog or additional data required by the fitter.
+    cores : int, optional
+        Number of CPU cores to use for multithreading. Default is 1.
+    chunksize : int, optional
+        Number of detection groups to process per thread chunk. Default is 1000.
     Returns
     -------
-    clean_pm_arr :
-
+    np.ndarray
+        An array of fit results, with failed fits (None) removed. The array has
+        dtype=object.
     """
 
     # Multithreaded application of a 5D fitter to groups of detections
@@ -572,15 +661,19 @@ if __name__ == "__main__":
         modest_pm_arr = new_modest_fitter(cat, part_fit5d, cores=my_cores)
 
         if len(modest_pm_arr) != 0:
-            modest_tbl = output_fits(modest_pm_arr, catname, f"modest{_+1}")
+            modest_tbl = output_fits(modest_pm_arr, catname, f"modest{_ + 1}")
 
             print(f"Writing {len(modest_tbl)} modest movers... (round {_ + 1})")
 
             modest_detections = detections_for_removal(modest_pm_arr, 5000, 50)
             if len(modest_detections) != 0:
                 cat.remove_rows(modest_detections)
+        else:
+            print(f"No modest movers found in round {_ + 1}.")
+            modest_tbl = None
+            modest_detections = None
 
-        cat.write(f"pre_fast{_+1}_" + catname, format="fits", overwrite=True)
+        cat.write(f"pre_fast{_ + 1}_" + catname, format="fits", overwrite=True)
 
         del modest_pm_arr
         del modest_tbl

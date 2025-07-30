@@ -1,17 +1,50 @@
-import astropy.units as u
 import fitsio
 import numpy as np
 from gnomonic_plate2sky import gnomonic_plate2sky
 
 
 def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
-    # Writes a fits table containing data from the proper motion fitting
+    """Write proper motion fit results and detection information to FITS files.
+
+    Parameters
+    ----------
+    pm_arr : np.ndarray
+        Array containing proper motion fit results and associated metadata for
+        each source. The expected shape and content depend on the `fittype`.
+    filename : str
+        Path to the input file, used as a base for output filenames if
+        `outputname` is not provided.
+    mtype : str
+        String identifier for the mover type (e.g., "star", "galaxy").
+    fittype : str, optional
+        Type of fit performed. Currently, only "fit5d" is supported.
+        Default is "fit5d".
+    outputname : str or None, optional
+        Base name for output files. If None, output filenames are constructed
+        from `filename` and `mtype`. Default is None.
+    Returns
+    -------
+    tbl : np.ndarray
+        Structured array containing the main fit results for each source.
+    Raises
+    ------
+    RuntimeError
+        If an unsupported `fittype` is provided.
+    Notes
+    -----
+    This function writes two FITS files:
+      - One containing the main mover fit results.
+      - One containing detection-level information for each source.
+    The function is currently tailored for "fit5d" results and uses a
+    hardcoded gnomonic projection center (for Sculptor).
+    """
+    
 
     if fittype != "fit5d":
+        tbl = None
         raise RuntimeError("This fitter is not yet supported")
 
     if fittype == "fit5d":
-
         column_dtypes = [
             ("idx", "i4"),
             ("mtype", "S10"),
@@ -67,8 +100,8 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
         p_fits = np.vstack(pm_arr[:, 0])
         cov = np.linalg.inv(np.stack(pm_arr[:, 1]))
 
-        xi = np.array((p_fits[:, 0] * u.arcsec).to(u.deg))
-        eta = np.array((p_fits[:, 1] * u.arcsec).to(u.deg))
+        xi = np.array(p_fits[:, 0]) / 3600.0
+        eta = np.array(p_fits[:, 1]) / 3600.0
 
         # !!!!!!!!!!!!!!!! TEMPORARY FOR SCULPTOR ONLY !!!!!!!!!!!!!!!!!!!!!!!!
         # This is the center of the gnomonic projection for Sculptor
@@ -76,9 +109,9 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
         dec0 = -33.7186
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-        ra, dec = gnomonic_plate2sky(xi, eta, ra0, dec0) * u.deg
-        pmra = (p_fits[:, 2] * u.arcsec / u.year).to(u.mas / u.year)
-        pmdec = (p_fits[:, 3] * u.arcsec / u.year).to(u.mas / u.year)
+        ra, dec = gnomonic_plate2sky(xi, eta, ra0, dec0)
+        pmra = 1000 * p_fits[:, 2]
+        pmdec = 1000 * p_fits[:, 3]
         pm = np.hypot(pmra, pmdec)
         parallax = p_fits[:, 4]
 
@@ -220,4 +253,9 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
         else:
             fitsio.write(outputname + ".fits", tbl, clobber=True)
             fitsio.write(outputname + "_detections.fits", detection_tbl, clobber=True)
+
+    else:
+        tbl = None
+        raise RuntimeError("Unsupported fittype: " + fittype)
+
     return tbl

@@ -34,22 +34,18 @@ def F_dec(ra_star,R_earth,ra_sun,dec_ecliptic,dec_star):
     return F_dec
 
 def plotter(data,header,img=None,outdir=None,tilename=None):
-    """
-    Plots detections and fit for individual sources.
+    """Plots detections and fit for individual sources.
 
     Parameters
     ----------
-    data : 
-    header : 
-    img : 
-    outdir : 
+    data :
+    header :
+    img :
+    outdir :
 
     Yeilds
     ------
-    
     """
-
-
     year = 365.2425
     ref_date = 57388.0
     deg2mas = 3600000

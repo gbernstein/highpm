@@ -58,7 +58,8 @@ def getTileBounds(tilename):
 
 
 def getFinalcutCatalog(tilename, ramin, ramax, decmin, decmax):
-    """Obtain desired fields for all Finalcut detections in the given ra/dec range."""
+    """Obtain desired fields for all Finalcut detections in the given ra/dec
+    range."""
     query = (
         "select o.expnum,o.band,c.ccdnum,o.alphawin_j2000,o.deltawin_j2000,"
         + "o.flags,o.imaflags_iso,o.xwin_image,o.ywin_image,o.errawin_world,o.errbwin_world,o.errthetawin_j2000,"
@@ -87,7 +88,9 @@ def getFinalcutCatalog(tilename, ramin, ramax, decmin, decmax):
 
 #### Fussing:
 def getFinalcutCatalog2(ramin, ramax, decmin, decmax):
-    """Obtain desired fields for all Finalcut detections in the given ra/dec range.
+    """Obtain desired fields for all Finalcut detections in the given ra/dec
+    range.
+
     This version uses efficiency hint from Chris Stephens 3/21/22.
     """
     query = (
@@ -106,13 +109,12 @@ def getFinalcutCatalog2(ramin, ramax, decmin, decmax):
 
 
 def projectCatalog(cat, ra0, dec0, exposureTable, color=0.6):
-    """Take a finalcut catalog and add columns giving the
-    gnomonic projected coordinates about the
-    point (`ra0,dec0`).  Fill these using Pixmappy astrometric
-    solutions.  Also use the local exposure catalog to enter
-    columns for `MJD_MID`, and for the parallax coefficients
-    that are the observatory position projected into the
-    plane transverse to the `ra0,dec0` direction.
+    """Take a finalcut catalog and add columns giving the gnomonic projected
+    coordinates about the point (`ra0,dec0`).  Fill these using Pixmappy
+    astrometric solutions.  Also use the local exposure catalog to enter
+    columns for `MJD_MID`, and for the parallax coefficients that are the
+    observatory position projected into the plane transverse to the `ra0,dec0`
+    direction.
 
     The input catalog should have columns for
     `expnum, ccdnum, xwin_image` and `ywin_image`.
@@ -135,10 +137,11 @@ def projectCatalog(cat, ra0, dec0, exposureTable, color=0.6):
     # And a rotation matrix into the system with axis along this
     cra, sra = math.cos(ra0 * np.pi / 180.0), math.sin(ra0 * np.pi / 180.0)
     cdec, sdec = math.cos(dec0 * np.pi / 180.0), math.sin(dec0 * np.pi / 180.0)
+    """Cdec  0   sdec         cra  sra 0.
+
+      0   1    0          -sra  cra 0
+    -sdec 0   cdec          0    0  1
     """
-     cdec  0   sdec         cra  sra 0
-       0   1    0          -sra  cra 0
-     -sdec 0   cdec          0    0  1 """
     R_bl = np.array(
         [
             [-sra, cra, 0.0],
