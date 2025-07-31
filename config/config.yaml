@@ -1,0 +1,41 @@
+# Generic Configuration for PM.py
+
+n_detections: 5 # Minimum number of detections required to fit a proper motion
+
+mjd_ref: 57388.0 # Reference MJD for the data in days
+
+ra0: 15.1083 # RA of the reference point in degrees
+dec0: -33.7186 # Dec of the reference point in degrees
+
+cores: 24 # Number of CPU cores to use for parallel processing
+chunksize: 1000 # Size of chunks for parallel processing
+
+modest:
+  linklength: 1.0 # Maximum link length in arcseconds
+  min_dt: 0.8 # Minimum time difference in years
+  eps: 3.0 # DBSCAN epsilon value
+  min_pairs: 4 # Minimum number of pairs to consider a group
+
+pm_lim: 5000 # Maximum proper motion in mas/yr for removal
+pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal
+
+fast:
+  pairlength: 20.0 # Maximum pair length in arcseconds
+  linklength: 1.0 # Maximum link length in arcseconds
+  min_pairs: 4 # Minimum number of pairs to consider a group
+  min_sep: 1.0 # Minimum separation in arcseconds
+  max_sep: 20.0 # Maximum separation in arcseconds
+  eps: 3.0 # DBSCAN epsilon value
+  min_dt: 0.8 # Minimum time difference in years
+
+fitting:
+  time_sep: 1.8 # Minimum time separation in years
+  chisqClip: 11.0 # Chi-squared clipping threshold
+  parallax_prior: 0.1 # Parallax prior in mas
+  color_prior: 5.0 # Color prior in mag
+  colorFrac: 0.9 # Required color fraction to use coadd color
+  pm_prior: null # Proper motion prior in mas/yr
+  additional_error: False # Whether to include additional error in covariance matrix
+
+output_name: null # Name of the output file, if null, will be generated based on input data
+
