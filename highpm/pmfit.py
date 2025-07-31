@@ -142,7 +142,7 @@ def singleFit(
     return p, None, None, fit, chisq, alpha
 
 
-def err2cov(temp_cat, additional_error=True):
+def err2cov(temp_cat, additional_error=False):
     """Convert error ellipse parameters to covariance matrix components.
 
     Parameters
@@ -220,7 +220,7 @@ def fit5d(
     minPts=5,
     colorFrac=0.9,
     pm_prior=None,
-    additional_error=True,
+    additional_error=False,
 ):
     """Fits a 5-parameter astrometric model to a set of catalog entries, with
     iterative outlier rejection and optional color term solving.
