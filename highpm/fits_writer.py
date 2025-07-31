@@ -1,3 +1,12 @@
+"""
+This module provides functionality to write proper motion fit results and
+detection information to FITS files. It includes the `output_fits` function,
+which processes the fit results and writes them to structured FITS tables.
+It is specifically designed for the 'fit5d' type of results, which includes
+proper motion and parallax data, along with associated metadata for each
+source.
+"""
+
 import fitsio
 import numpy as np
 from gnomonic_plate2sky import gnomonic_plate2sky
@@ -38,7 +47,6 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
     The function is currently tailored for "fit5d" results and uses a
     hardcoded gnomonic projection center (for Sculptor).
     """
-    
 
     if fittype != "fit5d":
         tbl = None

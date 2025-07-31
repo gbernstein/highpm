@@ -1,6 +1,4 @@
-"""Fit full five-parameter PM/parallax model to observations."""
-
-## ??? Need to gaurd against bad fits,  perhaps a v weak prior on PM
+"""Fit full five-parameter PM/parallax model to detections."""
 
 from typing import Optional, Tuple
 
@@ -21,8 +19,8 @@ def singleFit(
 ) -> Tuple[
     np.ndarray, Optional[float], Optional[float], np.ndarray, np.ndarray, np.ndarray
 ]:
-    """Fits astrometric parameters to input positions with optional priors and color
-    terms.
+    """Fits astrometric parameters to input positions with optional priors and
+    color terms.
 
     Parameters
     ----------
@@ -51,7 +49,8 @@ def singleFit(
     Returns
     -------
     p : np.ndarray
-        Best-fit parameters. If `solve_color` is True, returns first 5 parameters.
+        Best-fit parameters. If `solve_color` is True, returns first 5
+        parameters.
     color : Optional[float]
         Best-fit color term if `solve_color` is True, else None.
     color_err : Optional[float]
@@ -69,9 +68,9 @@ def singleFit(
         If `solve_color` is True and `dxy_dcolor` is not provided.
     Notes
     -----
-    The function centers the input positions for numerical stability and restores
-    the mean after fitting. Priors are implemented as additional diagonal terms in
-    the normal matrix.
+    The function centers the input positions for numerical stability and
+    restores the mean after fitting. Priors are implemented as additional
+    diagonal terms in the normal matrix.
     """
 
     # Remove means from xy for numerical stability
@@ -148,7 +147,7 @@ def err2cov(temp_cat, additional_error=True):
 
     Parameters
     ----------
-    temp_cat : array-like or pandas.DataFrame
+    temp_cat : np.ndarray
         Input catalog containing error ellipse parameters. Must contain the
         columns 'ERRAWIN_WORLD', 'NEW_RA_ERR', and 'NEW_DEC_ERR'.
     additional_error : bool, optional
@@ -166,7 +165,7 @@ def err2cov(temp_cat, additional_error=True):
     The covariance matrix is computed as the sum of the original and
     turbulent error contributions.
     """
-    
+
     degree = 3600.0  # in arcsec
 
     a = np.array(temp_cat["ERRAWIN_WORLD"]) * degree
@@ -223,16 +222,16 @@ def fit5d(
     pm_prior=None,
     additional_error=True,
 ):
-    """Fits a 5-parameter astrometric model to a set of catalog entries, with iterative
-    outlier rejection and optional color term solving.
+    """Fits a 5-parameter astrometric model to a set of catalog entries, with
+    iterative outlier rejection and optional color term solving.
 
     Parameters
     ----------
     indices : array_like
         Indices of the catalog entries to use for fitting.
-    cat : astropy.table.Table or similar
-        Catalog containing the data to be fit. Must support row removal and column
-        access by name.
+    cat : np.ndarray
+        Catalog containing the data to be fit. Must support row removal and
+        column access by name.
     time_sep : float, optional
         Minimum time span (in years) required for a valid fit. Default is 1.8.
     chisqClip : float, optional
@@ -242,7 +241,8 @@ def fit5d(
     color_prior : float, optional
         Prior on color term when solving for color. Default is 5.0.
     mjd_ref : float, optional
-        Reference Modified Julian Date for time normalization. Default is 57388.0.
+        Reference Modified Julian Date for time normalization.
+        Default is 57388.0.
     minPts : int, optional
         Minimum number of points required to attempt a fit. Default is 5.
     colorFrac : float, optional
@@ -250,8 +250,8 @@ def fit5d(
     pm_prior : float or None, optional
         Prior on proper motion parameter. Default is None (no prior).
     additional_error : bool, optional
-        Whether to include additional error in covariance calculation. Default is
-        True.
+        Whether to include additional error in covariance calculation. Default
+        is True.
     Returns
     -------
     tuple or None
@@ -341,7 +341,7 @@ def fit5d(
                 inu = np.argwhere(expnum == not_unique)
                 iClip = inu[np.argmax(chisq[inu])][0]
                 clips += [indices[iClip]]
-                temp_cat.remove_row(iClip)
+                temp_cat = np.delete(temp_cat, iClip, axis=0)
                 indices = np.delete(indices, iClip)
 
                 t = np.delete(t, iClip)
@@ -356,7 +356,7 @@ def fit5d(
         if xy.shape[0] > minPts and np.max(chisq) > chisqClip:
             iClip = np.argmax(chisq)
             clips += [indices[iClip]]
-            temp_cat.remove_row(iClip)
+            temp_cat = np.delete(temp_cat, iClip, axis=0)
             indices = np.delete(indices, iClip)
 
             t = np.delete(t, iClip)

@@ -1,12 +1,13 @@
+import glob
+import os
+
+import fitsio
+import healpy as hp
 import numpy as np
 import numpy.lib.recfunctions as rfn
-import fitsio
-import os
-import glob
-import healpy as hp
-from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy import units as u
 import pixmappy as pm
+from astropy import units as u
+from astropy.coordinates import SkyCoord, match_coordinates_sky
 
 
 def loadSkim(filename):

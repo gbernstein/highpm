@@ -1,12 +1,13 @@
-#!/usr/bin/env python
-# Establishes proper motions for stars in the DES footprint
-
-from __future__ import print_function
+"""
+This module provides functions for detecting and fitting proper motion from
+single epoch detections from ground based surveys.
+"""
 
 import sys
 from functools import partial
 from multiprocessing import Pool
 
+import fitsio
 import numpy as np
 import scipy.spatial as spspace
 import tqdm
@@ -41,15 +42,15 @@ def arborist(xi, eta):
     The input arrays `xi` and `eta` must have the same length. The function
     stacks them as columns to form a 2D array of shape (n_points, 2).
     """
-    tree = spspace.KDTree(np.array([xi, eta]).transpose())
+    tree = spspace.KDTree(np.array([xi, eta]).T)
     return tree
 
 
 def detections_for_removal(pm_arr, pm_lim, pm_err_lim):
-    """Identifies and returns detections for removal based on proper motion limits. This
-    function processes an array of proper motion fit results and their covariances,
-    filtering out detections whose proper motion and associated errors fall below
-    specified thresholds.
+    """Identifies and returns detections for removal based on proper motion
+    limits. This function processes an array of proper motion fit results and
+    their covariances, filtering out detections whose proper motion and
+    associated errors fall below specified thresholds.
 
     Parameters
     ----------
@@ -57,22 +58,22 @@ def detections_for_removal(pm_arr, pm_lim, pm_err_lim):
         Array of shape (N, ...) where each element contains fit results and
         covariance matrices for proper motion measurements.
     pm_lim : float
-        The upper limit for the magnitude of proper motion (in mas/yr) below which
-        detections are considered for removal.
+        The upper limit for the magnitude of proper motion (in mas/yr) below
+        which detections are considered for removal.
     pm_err_lim : float
-        The upper limit for the error in proper motion (in mas/yr) for both RA and
-        Dec components.
+        The upper limit for the error in proper motion (in mas/yr) for both RA
+        and Dec components.
     Returns
     -------
     removals : np.ndarray
-        Array of detections that meet the criteria for removal. If no detections
-        meet the criteria, an empty array is returned.
+        Array of detections that meet the criteria for removal. If no
+        detections meet the criteria, an empty array is returned.
     Notes
     -----
-    - The function multiplies proper motion values and errors by 1000 to convert
-      from arcsec/yr to mas/yr.
-    - If no detections meet the criteria, a message is printed and an empty array
-      is returned.
+    - The function multiplies proper motion values and errors by 1000 to
+      convert from arcsec/yr to mas/yr.
+    - If no detections meet the criteria, a message is printed and an empty
+      array is returned.
     """
 
     p_fits = np.vstack(pm_arr[:, 0])
@@ -102,7 +103,8 @@ def detections_for_removal(pm_arr, pm_lim, pm_err_lim):
 
 
 def filter_list(L):
-    """Filters a list of lists by removing any list that is a proper subset of another.
+    """Filters a list of lists by removing any list that is a proper subset of
+    another.
 
     Parameters
     ----------
@@ -112,8 +114,8 @@ def filter_list(L):
     Returns
     -------
     us : list of list
-        A list of lists where each list is not a proper subset of any other list
-        in the input.
+        A list of lists where each list is not a proper subset of any other
+        list in the input.
 
     Examples
     --------
@@ -132,36 +134,37 @@ def filter_list(L):
 
 
 def new_posvel(pairs, x, y, t, cov_xy, mjd_ref=57388.0):
-    """Compute average positions, velocities, and their covariances for pairs of
-    observations. Given pairs of observation indices, positions, times, and covariance
-    matrices, this function calculates the average position and velocity for each pair,
-    along with the associated covariance estimates. It also returns the time difference
-    for each pair and a boolean mask indicating valid pairs.
+    """Compute average positions, proper motions, and their covariances for
+    pairs of detections. Given pairs of detection indices, positions, times,
+    and covariance matrices, this function calculates the average position and
+    proper motion for each pair, along with the associated covariance
+    estimates. It also returns the time difference for each pair and a boolean
+    mask indicating valid pairs.
 
     Parameters
     ----------
     pairs : ndarray of shape (N, 2)
         Array of index pairs, where each row contains two indices (i, j)
-        referencing observations.
+        referencing detections.
     x : ndarray of shape (M,)
-        Array of x positions for each observation.
+        Array of x positions for each detection.
     y : ndarray of shape (M,)
-        Array of y positions for each observation.
+        Array of y positions for each detection.
     t : ndarray of shape (M,)
         Array of observation times.
-    cov_xy : ndarray of shape (M, 2)
-        Covariance matrix for each observation, where the first column is the
+    cov_xy : ndarray of shape (M, 3)
+        Covariance matrix for each detection, where the first column is the
         variance in x and the second column is the variance in y.
     mjd_ref : float, optional
         Reference time (in MJD). Default is 57388.0.
     Returns
     -------
     posvel : ndarray of shape (K, 4)
-        Array containing average x, average y, velocity in x, and velocity in y
-        for each valid pair.
+        Array containing average x, average y, proper motion in x, and proper
+        motion in y for each valid pair.
     cov : ndarray of shape (K, 4)
-        Covariance estimates for average x, average y, velocity in x, and
-        velocity in y for each valid pair.
+        Covariance estimates for average x, average y, proper motion in x, and
+        proper motion in y for each valid pair.
     dt : ndarray of shape (K,)
         Absolute time differences between the pairs.
     good_pairs : ndarray of bool, shape (N,)
@@ -209,19 +212,21 @@ def new_posvel(pairs, x, y, t, cov_xy, mjd_ref=57388.0):
 
 
 def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
-    """Identifies clusters of moving objects in a catalog based on positional and
-    temporal data using DBSCAN clustering.
+    """Identifies clusters of moving objects in a catalog based on positional
+    and temporal data using DBSCAN clustering.
 
     Parameters
     ----------
-    sample : array-like
+    sample : list
         Indices or boolean mask selecting the subset of detections to analyze
         from the catalog.
-    cat : dict-like
-        Catalog containing detection data. Must provide "XI", "ETA", and "MJD"
-        fields, as well as support for indexing with `sample`.
+    cat : np.ndarray
+        A structured array with the fields "XI", "ETA", and "MJD" representing
+        the x and y positions (in degrees) and the Modified Julian Date of each
+        detection, respectively.
     mjd_ref : float, optional
-        Reference Modified Julian Date for time normalization (default is 57388.0).
+        Reference Modified Julian Date for time normalization (default is
+        57388.0).
     min_dt : float, optional
         Minimum time difference (in years) required between detection pairs to
         be considered for clustering (default is 0.8).
@@ -236,7 +241,8 @@ def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
     - Uses DBSCAN clustering on a custom distance matrix derived from position
       and velocity estimates.
     - Requires external functions: `err2cov`, `new_posvel`, and `filter_list`.
-    - Assumes the catalog fields are in degrees and converts them to arcseconds.
+    - Assumes the catalog fields are in degrees and converts them to
+      arcseconds.
     """
 
     sample = np.array(sample)
@@ -301,23 +307,25 @@ def new_modest_mover(sample, cat, mjd_ref=57388.0, min_dt=0.8):
 
 
 def new_modest_fitter(cat, fitter, linklength=1.0 / 3600.0, cores=1):
-    """Fits proper motion models to groups of detections in a catalog using a friends-
-    of- friends algorithm and parallel processing.
+    """Fits proper motion models to groups of detections in a catalog using a
+    friends-of-friends algorithm and parallel processing.
 
     Parameters
     ----------
-    cat : dict or structured array
-        Catalog of detections, expected to contain at least "XI" and "ETA" fields.
+    cat : np.ndarray
+        A structured array with the fields "XI", "ETA", and "MJD" representing
+        the x and y positions (in degrees) and the Modified Julian Date of each
+        detection, respectively.
     fitter : callable
         Fitting function or object to be used in the multi_fit5d step.
     linklength : float, optional
-        Linking length (in degrees) for the friends-of-friends algorithm. Default is
-        1.0 / 3600.0.
+        Linking length (in degrees) for the friends-of-friends algorithm.
+        Default is 1.0 / 3600.0.
     cores : int, optional
         Number of CPU cores to use for parallel processing. Default is 1.
     Returns
     -------
-    modest_pm_arr : array-like
+    modest_pm_arr : np.ndarray
         Array of fitted proper motion parameters for the detected groups.
     Notes
     -----
@@ -370,29 +378,35 @@ def fast_movers(
     max_sep=20.0,
     eps=3.0,
 ):
-    """Identify and fit fast-moving objects from a catalog of detections. This function
-    processes a catalog of astronomical detections to identify candidate fast-moving
-    objects (e.g., asteroids) by clustering detection pairs in position-velocity space
-    and fitting their motion parameters.
+    """Identify and fit fast-moving objects from a catalog of detections. This
+    function processes a catalog of astronomical detections to identify
+    candidate fast-moving stars by clustering detection pairs in
+    position-proper motion space and fitting their motion parameters.
 
     Parameters
     ----------
-    cat : pandas.DataFrame or dict-like
-        Catalog of detections containing at least the columns "XI", "ETA", and "MJD".
+    cat : np.ndarray
+        Catalog of detections containing at least the columns "XI", "ETA", and
+        "MJD".
     fitter : callable
-        Function or object used to fit the motion parameters of candidate objects.
+        Function used to fit the motion parameters of candidate objects.
     pairlength : float, optional
-        Maximum separation (in arcseconds) for initial detection pairing. Default is 20.0.
+        Maximum separation (in arcseconds) for initial detection pairing.
+        Default is 20.0.
     linklength : float, optional
-        Maximum distance in 4D position-velocity space for clustering. Default is 1.0.
+        Maximum distance in 4D position-velocity space for clustering.
+        Default is 1.0.
     cores : int, optional
         Number of CPU cores to use for parallel processing. Default is 1.
     min_pairs : int, optional
-        Minimum number of detection pairs required for a candidate object. Default is 4.
+        Minimum number of detection pairs required for a candidate object.
+        Default is 4.
     min_sep : float, optional
-        Minimum proper motion (in arcseconds/year) for candidate selection. Default is 1.0.
+        Minimum proper motion (in arcseconds/year) for candidate pair.
+        Default is 1.0.
     max_sep : float, optional
-        Maximum proper motion (in arcseconds/year) for candidate selection. Default is 20.0.
+        Maximum proper motion (in arcseconds/year) for candidate pair.
+        Default is 20.0.
     eps : float, optional
         DBSCAN clustering threshold in 4D space. Default is 3.0.
     Returns
@@ -401,11 +415,14 @@ def fast_movers(
         List of fitted parameter arrays for each identified fast-moving object.
     Notes
     -----
-    - Requires external functions: `err2cov`, `arborist`, `new_posvel`, `spspace.KDTree`,
-      `DBSCAN`, `multithreader`, `new_modest_mover`, and `multi_fit5d`.
-    - The catalog must provide columns for positions ("XI", "ETA") and times ("MJD").
-    - The function uses DBSCAN clustering to group detection pairs in position-velocity
-      space and fits motion models to each candidate object.
+    - Requires external functions: `err2cov`, `arborist`, `new_posvel`,
+      `spspace.KDTree`, `DBSCAN`, `multithreader`, `new_modest_mover`, and
+      `multi_fit5d`.
+    - The catalog must provide columns for positions ("XI", "ETA") and times
+      ("MJD").
+    - The function uses DBSCAN clustering to group detection pairs in
+      position-proper motion space and fits motion models to each candidate
+      object.
     """
     x = np.array(cat["XI"]) * 3600.0
     y = np.array(cat["ETA"]) * 3600.0
@@ -605,7 +622,8 @@ def multi_fit5d(fitter, detections_groups, cat, cores=1, chunksize=1000):
     cores : int, optional
         Number of CPU cores to use for multithreading. Default is 1.
     chunksize : int, optional
-        Number of detection groups to process per thread chunk. Default is 1000.
+        Number of detection groups to process per thread chunk.
+        Default is 1000.
     Returns
     -------
     np.ndarray
@@ -667,13 +685,17 @@ if __name__ == "__main__":
 
             modest_detections = detections_for_removal(modest_pm_arr, 5000, 50)
             if len(modest_detections) != 0:
-                cat.remove_rows(modest_detections)
+                cat = np.delete(cat, modest_detections, axis=0)
         else:
             print(f"No modest movers found in round {_ + 1}.")
             modest_tbl = None
             modest_detections = None
 
-        cat.write(f"pre_fast{_ + 1}_" + catname, format="fits", overwrite=True)
+        fitsio.write(
+            f"pre_fast{_ + 1}_" + catname[:-5] + "_header.fits",
+            cat,
+            clobber=True,
+        )
 
         del modest_pm_arr
         del modest_tbl
@@ -687,8 +709,6 @@ if __name__ == "__main__":
         print(f"Writing {len(fast_tbl)} fast movers...")
 
     del fast_pm_arr
-
-    cat_copy.write("NEW_" + catname, format="fits", overwrite=True)
 
     print("Done!")
 

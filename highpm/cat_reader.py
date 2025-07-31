@@ -1,9 +1,13 @@
+"""
+This module provides functions to read and clean catalog data from FITS files.
+"""
+
+import fitsio
 import numpy as np
-from astropy.table import QTable
 
 
 def read_cat_header(filename):
-    """Reads the header metadata from a catalog file.
+    """Reads the header data from a catalog file.
 
     Parameters
     ----------
@@ -14,14 +18,13 @@ def read_cat_header(filename):
     header : dict
         The metadata header of the catalog file as a dictionary.
     """
-    
-    tbl = QTable.read(filename)
-    header = tbl.meta
+
+    header = fitsio.read_header(filename)
     return header
 
 
 def read_cat_data(filename):
-    """Reads catalog data from a file using QTable.
+    """Reads catalog data from a file using fitsio.
 
     Parameters
     ----------
@@ -29,11 +32,11 @@ def read_cat_data(filename):
         Path to the file containing the catalog data.
     Returns
     -------
-    cat : QTable
+    cat : np.ndarray
         The catalog data read from the specified file.
     """
-    
-    cat = QTable.read(filename)
+
+    cat = fitsio.read(filename)
     return cat
 
 
@@ -47,10 +50,10 @@ def clean_cat(catname):
         if these columns exist. If not, skips this cut and prints a warning.
     Parameters
     ----------
-    catname : numpy.ndarray or pandas.DataFrame
-            Input catalog containing at least the columns 'FLAGS' and 'IMAFLAGS_ISO'.
-            For additional filtering, should also contain 'SPREAD_MODEL' and
-            'SPREADERR_MODEL'.
+    catname : numpy.ndarray
+            Input catalog containing at least the columns 'FLAGS' and
+            'IMAFLAGS_ISO'. For additional filtering, should also contain
+            'SPREAD_MODEL' and 'SPREADERR_MODEL'.
     Returns
     -------
     cleancat : same type as `catname`
@@ -58,10 +61,10 @@ def clean_cat(catname):
     Raises
     ------
     KeyError
-            If 'SPREAD_MODEL' or 'SPREADERR_MODEL' columns are missing, the function
-            skips the related cut and prints a warning instead.
+            If 'SPREAD_MODEL' or 'SPREADERR_MODEL' columns are missing, the
+            function skips the related cut and prints a warning instead.
     """
-    
+
     cleancat = catname[
         np.logical_and(catname["FLAGS"] < 4, catname["IMAFLAGS_ISO"] == 0)
     ]
