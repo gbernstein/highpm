@@ -4,7 +4,6 @@ import numpy as np
 from astropy.coordinates import EarthLocation, get_body, solar_system_ephemeris
 from astropy.time import Time
 
-from highpm import fast
 from highpm.modest import new_modest_mover
 from highpm.multithreader import multi_fit5d, multithreader
 from highpm.utils import arborist
