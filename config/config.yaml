@@ -32,6 +32,9 @@ fast:
   min_dt: 0.8 # Minimum time difference in years
   shared_pairs: 0.8 # Maximum fraction of shared pairs to consider a group
 
+fast_checker:
+  search_radius: 1.0 # Search radius in arcseconds
+
 min_overlap: 0.79
 
 fitting:
