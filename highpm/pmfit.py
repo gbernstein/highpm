@@ -218,6 +218,7 @@ def fit5d(
     color_prior=5.0,
     mjd_ref=57388.0,
     minPts=5,
+    minSeasons=3,
     colorFrac=0.9,
     pm_prior=None,
     additional_error=False,
@@ -245,6 +246,9 @@ def fit5d(
         Default is 57388.0.
     minPts : int, optional
         Minimum number of points required to attempt a fit. Default is 5.
+    minSeasons : int, optional
+        Minimum number of distinct seasons with detections required for a valid
+        fit. Default is 3.
     colorFrac : float, optional
         Fractional threshold for color mode selection. Default is 0.9.
     pm_prior : float or None, optional
@@ -305,7 +309,11 @@ def fit5d(
 
     temp_cat = cat[indices]
 
-    if len(temp_cat) < minPts:
+    n_seasons = np.sum(
+        np.histogram(temp_cat["MJD"] * day, range=(155, 170), bins=30)[0] > 0
+    )
+
+    if (len(temp_cat) < minPts) or (n_seasons < minSeasons):
         # Not enough points to fit
         return None
 
@@ -324,7 +332,11 @@ def fit5d(
     unique_expnum = len(np.unique(expnum)) == len(expnum)
 
     # Begin fit/clip loop
-    while xy.shape[0] >= minPts and len(np.unique([round(i) for i in t])) >= time_sep:
+    while (
+        xy.shape[0] >= minPts
+        and len(np.unique([round(i) for i in t])) >= time_sep
+        and n_seasons >= minSeasons
+    ):
         p, *_, chisq, alpha = singleFit(
             xy,
             cov_xy,
@@ -353,7 +365,11 @@ def fit5d(
                 continue
 
         # See if anything is clipped
-        if xy.shape[0] > minPts and np.max(chisq) > chisqClip:
+        if (
+            xy.shape[0] > minPts
+            and np.max(chisq) > chisqClip
+            and n_seasons >= minSeasons
+        ):
             iClip = np.argmax(chisq)
             clips += [indices[iClip]]
             temp_cat = np.delete(temp_cat, iClip, axis=0)
@@ -364,6 +380,11 @@ def fit5d(
             cov_xy = np.delete(cov_xy, iClip, axis=0)
             par_xy = np.delete(par_xy, iClip, axis=0)
             nClip = nClip + 1
+
+            n_seasons = np.sum(
+                np.histogram(temp_cat["MJD"] * day, range=(155, 170), bins=15)[0] > 0
+            )
+
         else:
             # Fit is finished
             # Use true covariance for final fit

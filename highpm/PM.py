@@ -7,13 +7,12 @@ import sys
 from functools import partial
 from multiprocessing import Pool
 
-import fitsio
 import numpy as np
 import scipy.spatial as spspace
 import tqdm
 import yaml
 from cat_reader import clean_cat, read_cat_data, read_cat_header
-from fits_writer import output_fits
+from fits_writer import output_fits, output_fits_mask
 from friends_of_friends import find_friend, friends_of_friends
 from pmfit import err2cov, fit5d
 from scipy.sparse import coo_matrix, csr_matrix
@@ -326,7 +325,13 @@ def new_modest_mover(sample, cat, config, mode="modest"):
         if cluster_id == -1:
             continue  # Skip noise points
         cluster_mask = clustering.labels_ == cluster_id
-        cluster_indices = np.unique(indices[cluster_mask])
+        cluster_indices, counts = np.unique(indices[cluster_mask], return_counts=True)
+
+        most_common = cluster_indices[np.argmax(counts)]
+        mask = np.isin(indices[cluster_mask], most_common).any(axis=1)
+
+        if np.mean(mask) > config[mode]["shared_pairs"]:
+            continue  # Skip clusters with too many shared pairs
 
         if len(cluster_indices) >= config["n_detections"]:
             obj_list.append(cluster_indices.tolist())
@@ -574,63 +579,36 @@ def fast_movers(cat, fitter, config):
             detection_pair = [int(fast_pairs[j, 0]), int(fast_pairs[j, 1])]
             temp_object += detection_pair
         fast_obj += [list(np.unique(temp_object))]
-    fast_candidates = [i for i in fast_obj if len(i) > config["n_detections"]]
+    fast_candidates = [set(i) for i in fast_obj if len(i) > config["n_detections"]]
 
-    partial_new_modest_mover = partial(new_modest_mover, mode="fast")
+    print(len(fast_candidates), "fast candidates found.")
 
-    fast_pm_ls = multithreader(partial_new_modest_mover, fast_candidates, cat, config)
+    for i in range(len(fast_candidates)):
+        for j in range(i, len(fast_candidates)):
+            min_len_id = np.argmin([len(fast_candidates[i]), len(fast_candidates[j])])
+            min_len = len(fast_candidates[min_len_id])
+            overlap = len(fast_candidates[i] & fast_candidates[j]) / min_len
+            if overlap > config["min_overlap"]:
+                fast_candidates[[i, j][min_len_id]] = (
+                    fast_candidates[i] | fast_candidates[j]
+                )
 
-    fast_pm_ls = [i for i in fast_pm_ls if i is not None]
-    fast_pm_obj = []
-    for i in fast_pm_ls:
-        for j in i:
-            fast_pm_obj += [j]
+    fast_pm_obj = filter_list(fast_candidates)
 
-    fast_pm_obj = [i for i in fast_pm_obj if len(i) >= config["n_detections"]]
+    # partial_new_modest_mover = partial(new_modest_mover, mode="fast")
+
+    # fast_pm_ls = multithreader(partial_new_modest_mover, fast_candidates, cat, config)
+
+    # fast_pm_ls = [i for i in fast_pm_ls if i is not None]
+    # fast_pm_obj = []
+    # for i in fast_pm_ls:
+    #     for j in i:
+    #         fast_pm_obj += [j]
+
+    # fast_pm_obj = [i for i in fast_pm_obj if len(i) >= config["n_detections"]]
 
     fast_pm_arr = multi_fit5d(fitter, fast_pm_obj, cat, config)
     return fast_pm_arr
-
-
-# =============================================================================
-
-
-def fast_checker(idx, cat, fast_cat):
-    temp_idx_circ = (cat["XI"] - fast_cat["xi"][idx]) ** 2 + (
-        cat["ETA"] - fast_cat["eta"][idx]
-    ) ** 2 < ((3 * fast_cat["pm"][idx] + 1000) / 3600000) ** 2
-    temp_cat_circ = cat[temp_idx_circ]
-
-    slope = fast_cat["pmdec"][idx] / fast_cat["pmra"][idx]
-    temp_idx = (
-        np.abs(
-            slope * (temp_cat_circ["XI"] - fast_cat["xi"][idx])
-            + fast_cat["eta"][idx]
-            - temp_cat_circ["ETA"]
-        )
-        / np.sqrt(1 + slope**2)
-        < 2 / 3600.0
-    )
-    temp_cat = temp_cat_circ[temp_idx]
-
-    pm = fast_cat["pm"][idx] / 1000
-
-    res = 30
-    if pm < 0.1:
-        res = 300
-
-    w = round(2 * 3 * res * (pm)) + 2 * res
-    h = round(2 * res * (pm)) + 2 * res
-
-    ra_0 = np.mean(temp_cat["XI"])
-    dec_0 = np.mean(temp_cat["ETA"])
-
-    obj_lol = []
-
-    return obj_lol
-
-
-# =============================================================================
 
 
 # =============================================================================
@@ -794,14 +772,13 @@ if __name__ == "__main__":
 
     cat = clean_cat(cat)
 
-    cat_copy = cat.copy()
-
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     fitting = config["fitting"]
 
     time_sep = fitting["time_sep"]
+    minSeasons = fitting["minSeasons"]
     chisqClip = fitting["chisqClip"]
     parallax_prior = fitting["parallax_prior"]
     color_prior = fitting["color_prior"]
@@ -812,6 +789,7 @@ if __name__ == "__main__":
     part_fit5d = partial(
         fit5d,
         time_sep=time_sep,
+        minSeasons=minSeasons,
         chisqClip=chisqClip,
         parallax_prior=parallax_prior,
         color_prior=color_prior,
@@ -820,9 +798,13 @@ if __name__ == "__main__":
         additional_error=additional_error,
     )
 
-    for _ in range(3):
+    n_modests = config["n_modests"]
+
+    fit_detection_arr = np.zeros((n_modests, len(cat)), dtype=bool)
+
+    for _ in range(n_modests):
         modest_pm_arr = new_modest_fitter(
-            cat,
+            cat[~fit_detection_arr[_ - 1]],
             part_fit5d,
             config,
         )
@@ -834,23 +816,23 @@ if __name__ == "__main__":
 
             modest_detections = detections_for_removal(modest_pm_arr, config)
             if len(modest_detections) != 0:
-                cat = np.delete(cat, modest_detections, axis=0)
+                fit_detection_arr[_] = fit_detection_arr[_ - 1].copy()
+                temp_detection_arr = fit_detection_arr[_, ~fit_detection_arr[_ - 1]]
+                temp_detection_arr[modest_detections] = True
+                fit_detection_arr[_, ~fit_detection_arr[_ - 1]] = temp_detection_arr
+
         else:
             print(f"No modest movers found in round {_ + 1}.")
             modest_tbl = None
             modest_detections = None
 
-        fitsio.write(
-            f"pre_fast{_ + 1}_" + catname[:-5] + "_header.fits",
-            cat,
-            clobber=True,
-        )
-
         del modest_pm_arr
         del modest_tbl
         del modest_detections
 
-    fast_pm_arr = fast_movers(cat, part_fit5d, config)
+    output_fits_mask(fit_detection_arr, n_modest=n_modests, filename=catname)
+
+    fast_pm_arr = fast_movers(cat[~fit_detection_arr[-1]], part_fit5d, config)
 
     if len(fast_pm_arr) != 0:
         fast_tbl = output_fits(fast_pm_arr, catname, "fast")
