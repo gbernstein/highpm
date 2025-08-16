@@ -9,7 +9,8 @@ source.
 
 import fitsio
 import numpy as np
-from gnomonic_plate2sky import gnomonic_plate2sky
+
+from .gnomonic_plate2sky import gnomonic_plate2sky
 
 
 def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):

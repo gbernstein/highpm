@@ -1,11 +1,12 @@
 import numpy as np
 import tqdm
-from multithreader import multi_fit5d
-from pmfit import err2cov
 from scipy import spatial as spspace
 from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.cluster import DBSCAN
-from utils import arborist, filter_list, new_posvel
+
+from .multithreader import multi_fit5d
+from .pmfit import err2cov
+from .utils import arborist, filter_list, new_posvel
 
 # =============================================================================
 # Fast mover algorithm

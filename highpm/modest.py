@@ -1,11 +1,12 @@
 from functools import partial
-import numpy as np
-from friends_of_friends import find_friend, friends_of_friends
-from pmfit import err2cov
-from sklearn.cluster import DBSCAN
-from utils import arborist, new_posvel, filter_list
-from multithreader import multithreader, multi_fit5d
 
+import numpy as np
+from sklearn.cluster import DBSCAN
+
+from .friends_of_friends import find_friend, friends_of_friends
+from .multithreader import multi_fit5d, multithreader
+from .pmfit import err2cov
+from .utils import arborist, filter_list, new_posvel
 
 # =============================================================================
 # New Slow / Modest Mover algorithm
