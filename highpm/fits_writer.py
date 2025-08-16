@@ -267,3 +267,21 @@ def output_fits(pm_arr, filename, mtype, fittype="fit5d", outputname=None):
         raise RuntimeError("Unsupported fittype: " + fittype)
 
     return tbl
+
+
+def output_fits_mask(fit_detection_arr, n_modest, filename, outputname=None):
+    column_dtypes = [(f"modest_{i}", "?") for i in range(n_modest)]
+
+    fit_detection_recarr = np.rec.fromarrays(fit_detection_arr, dtype=column_dtypes)
+
+    if outputname is None:
+        fitsio.write(
+            filename[:-5] + "_fit_detection_mask.fits",
+            fit_detection_recarr,
+            clobber=True,
+        )
+    else:
+        fitsio.write(
+            outputname + "_fit_detection_mask.fits", fit_detection_recarr, clobber=True
+        )
+    return
