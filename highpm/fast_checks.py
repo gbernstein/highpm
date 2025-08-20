@@ -87,7 +87,7 @@ def detection_search(trees, xi, eta, ra, dec, pmra, pmdec, parallax, mjd, sol, c
 
         temp_idx = trees[temp_mjd]["tree"].query_ball_point(
             np.array([temp_ra, temp_dec]),
-            config["fast_checker"]["search_radius"],
+            config["fastcheck"]["search_radius"],
         )
 
         idx = trees[temp_mjd]["idx"][temp_idx]

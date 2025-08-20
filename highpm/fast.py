@@ -91,9 +91,9 @@ def fast_movers(cat, fitter, config):
     if np.any([key not in config and key not in config["fast"] for key in config_reqs]):
         raise ValueError(f"Missing required config keys: {config_reqs}")
 
-    x = np.array(cat["XI"]) * 3600.0
-    y = np.array(cat["ETA"]) * 3600.0
-    t = np.array(cat["MJD"]) / 365.2425
+    x = np.array(cat["XI"], dtype=np.float64) * 3600.0
+    y = np.array(cat["ETA"], dtype=np.float64) * 3600.0
+    t = np.array(cat["MJD"], dtype=np.float64) / 365.2425
 
     cov_xy = err2cov(cat, additional_error=False)
 

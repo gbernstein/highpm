@@ -2,8 +2,11 @@
 This module provides functions to read and clean catalog data from FITS files.
 """
 
+from math import e
+
 import fitsio
 import numpy as np
+from torch import cat
 
 
 def read_cat_header(filename):
@@ -40,6 +43,34 @@ def read_cat_data(filename):
     return cat
 
 
+def wavg_extended_class_y6a2(spread_model, spread_model_error):
+    """DES DR2 extended classifier for stars and galaxies using WAVG quantities.
+
+        0 : High-confidence stars
+        1 : Likely stars
+        2 : Likely galaxies
+        3 : High-confidence galaxies
+       -9 : Failures
+
+    Parameters
+    ----------
+    spread_model      : SExtractor spread model value in a band
+    spread_model_error: SExtractor spread model error in a band
+
+    Returns
+    -------
+    extended_class    : Extended classifier output
+    """
+    extend_val = ((spread_model + 3.0 * spread_model_error) > 0.005) * 1
+    extend_val += ((spread_model + 1.0 * spread_model_error) > 0.003) * 1
+    extend_val += ((spread_model - 0.5 * spread_model_error) > 0.001) * 1
+
+    extend_val[spread_model == -1] = -9
+    extend_val[(spread_model == 0) & (spread_model_error == 0)] = -9
+    extend_val[(spread_model == 1) & (spread_model_error == 1)] = -9
+    return extend_val
+
+
 def clean_cat(catname):
     """Cleans a catalog by applying quality cuts on specific columns.
 
@@ -65,14 +96,15 @@ def clean_cat(catname):
             function skips the related cut and prints a warning instead.
     """
 
-    cleancat = catname[
-        np.logical_and(catname["FLAGS"] < 4, catname["IMAFLAGS_ISO"] == 0)
-    ]
+    cleanmask = np.logical_and(catname["FLAGS"] < 4, catname["IMAFLAGS_ISO"] == 0)
+
     try:
-        cleancat = cleancat[
-            np.abs(cleancat["SPREAD_MODEL"]) < 3 * cleancat["SPREADERR_MODEL"]
-        ]
+        # cleanmask &= np.abs(catname["SPREAD_MODEL"]) < 3 * catname["SPREADERR_MODEL"]
+
+        extval = wavg_extended_class_y6a2(
+            catname["SPREAD_MODEL"], catname["SPREADERR_MODEL"]
+        )
+        cleanmask &= extval != 3
     except KeyError:
-        cleancat = catname
         print("No Spead Model cleaning...")
-    return cleancat
+    return cleanmask

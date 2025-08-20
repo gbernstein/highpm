@@ -188,7 +188,8 @@ def err2cov(temp_cat, additional_error=False):
                 a * a + b * b + ee * np.cos(pa),
                 a * a + b * b - ee * np.cos(pa),
                 ee * np.sin(pa),
-            ]
+            ],
+            dtype=np.float64,
         ).T
         / 2.0
     )
@@ -199,7 +200,8 @@ def err2cov(temp_cat, additional_error=False):
                 turb_a * turb_a + turb_b * turb_b + ee * np.cos(pa),
                 turb_a * turb_a + turb_b * turb_b - ee * np.cos(pa),
                 ee * np.sin(pa),
-            ]
+            ],
+            np.float64,
         ).T
         / 2.0
     )
