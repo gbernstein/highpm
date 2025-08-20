@@ -19,6 +19,12 @@ import os
 import sys
 from functools import partial
 
+# Ensure project root (package parent) is importable when running this script directly
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import fitsio
 import numpy as np
 import yaml
@@ -27,12 +33,6 @@ from highpm.cat_reader import clean_cat, read_cat_data
 from highpm.fast_checks import fast_checker
 from highpm.fits_writer import output_fits
 from highpm.pmfit import fit5d
-
-# Ensure project root (package parent) is importable when running this script directly
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
 
 
 def _validate_config(config: dict):
@@ -60,7 +60,7 @@ def _validate_config(config: dict):
             missing.append(k)
 
     # Fast-check specific
-    if "fast_checker" not in config or "search_radius" not in config["fast_checker"]:
+    if "fastcheck" not in config or "search_radius" not in config["fastcheck"]:
         # We'll allow the wrapper to provide a default; don't fail here, just warn via return
         pass
 
@@ -89,14 +89,14 @@ def run_fast_checks(
         config = yaml.safe_load(f)
 
     # Optional override for search radius (input in arcsec; internal is degrees)
-    if "fast_checker" not in config:
-        config["fast_checker"] = {}
+    if "fastcheck" not in config:
+        config["fastcheck"] = {}
     if search_radius_arcsec is not None:
-        config["fast_checker"]["search_radius"] = float(search_radius_arcsec) / 3600.0
+        config["fastcheck"]["search_radius"] = float(search_radius_arcsec) / 3600.0
     # Default if still missing
-    if "search_radius" not in config["fast_checker"]:
+    if "search_radius" not in config["fastcheck"]:
         # 1.0 arcsec default in degrees
-        config["fast_checker"]["search_radius"] = 1.0 / 3600.0
+        config["fastcheck"]["search_radius"] = 1.0 / 3600.0
 
     _validate_config(config)
 
@@ -104,12 +104,15 @@ def run_fast_checks(
     print(f"Loading detections: {detections_path}")
     cat = read_cat_data(detections_path)
     print(f"Detections loaded: {len(cat)}")
-    cat = clean_cat(cat)
+
+    cleanmask = clean_cat(cat)
+    cat_idx = np.arange(len(cat))[cleanmask]
+    cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
 
     # Load fast catalog to check
     print(f"Loading fast-check catalog: {fastcat_path}")
-    fast_cat = fitsio.read(fastcat_path)
+    fast_cat = fitsio.read(fastcat_path, ext="fast_movers")
     _validate_fastcat_columns(fast_cat)
     print(f"Fast-check objects loaded: {len(fast_cat)}")
 
@@ -130,7 +133,7 @@ def run_fast_checks(
     # Run fast checker
     print(
         "Running fast checker with search radius (deg):",
-        config["fast_checker"]["search_radius"],
+        config["fastcheck"]["search_radius"],
     )
     pm_arr = fast_checker(cat, fast_cat, part_fit5d, config)
 
@@ -140,7 +143,9 @@ def run_fast_checks(
 
     # Write outputs
     outname = None if output_prefix is None else f"{output_prefix}_fastcheck"
-    tbl = output_fits(pm_arr, detections_path, "fastcheck", outputname=outname)
+    tbl = output_fits(
+        pm_arr, cat_idx, detections_path, "fastcheck", config=config, outputname=outname
+    )
     print(f"Wrote {len(tbl)} fast-check movers.")
     return 0
 

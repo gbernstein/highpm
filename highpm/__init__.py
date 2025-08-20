@@ -15,11 +15,8 @@ def __getattr__(name):
         return _fast_movers
     if name in {"output_fits", "output_fits_mask"}:
         from .fits_writer import output_fits as _output_fits
-        from .fits_writer import output_fits_mask as _output_fits_mask
 
-        return {"output_fits": _output_fits, "output_fits_mask": _output_fits_mask}[
-            name
-        ]
+        return {"output_fits": _output_fits}[name]
     if name in {"find_friend", "friends_of_friends"}:
         from .friends_of_friends import find_friend as _find_friend
         from .friends_of_friends import friends_of_friends as _friends_of_friends

@@ -19,7 +19,7 @@ import yaml
 
 from highpm.cat_reader import clean_cat, read_cat_data
 from highpm.fast import fast_movers
-from highpm.fits_writer import output_fits, output_fits_mask
+from highpm.fits_writer import output_fits
 from highpm.modest import new_modest_fitter
 from highpm.pmfit import fit5d
 from highpm.utils import detections_for_removal
@@ -58,7 +58,9 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
     cat = read_cat_data(catname)
     print(f"Detections loaded: {len(cat)}")
 
-    cat = clean_cat(cat)
+    cleanmask = clean_cat(cat)
+    cat_idx = np.arange(len(cat))[cleanmask]
+    cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
 
     fitting = config["fitting"]
@@ -85,6 +87,8 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
             config,
         )
 
+        detections_idx = cat_idx[~fit_detection_arr[i_round - 1]]
+
         if len(modest_pm_arr) != 0:
             outname = (
                 None
@@ -92,7 +96,12 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
                 else f"{output_prefix}_modest{i_round + 1}"
             )
             modest_tbl = output_fits(
-                modest_pm_arr, catname, f"modest{i_round + 1}", outputname=outname
+                modest_pm_arr,
+                detections_idx,
+                catname,
+                f"modest{i_round + 1}",
+                config=config,
+                outputname=outname,
             )
             print(f"Writing {len(modest_tbl)} modest movers... (round {i_round + 1})")
 
@@ -113,15 +122,20 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
         del modest_pm_arr
 
     outmask_name = output_prefix if output_prefix is not None else None
-    output_fits_mask(
-        fit_detection_arr, n_modest=n_modests, filename=catname, outputname=outmask_name
-    )
 
     fast_pm_arr = fast_movers(cat[~fit_detection_arr[-1]], part_fit5d, config)
+    detections_idx = cat_idx[~fit_detection_arr[-1]]
 
     if len(fast_pm_arr) != 0:
         outname = None if output_prefix is None else f"{output_prefix}_fast"
-        fast_tbl = output_fits(fast_pm_arr, catname, "fast", outputname=outname)
+        fast_tbl = output_fits(
+            fast_pm_arr,
+            detections_idx,
+            catname,
+            "fast",
+            config=config,
+            outputname=outname,
+        )
         print(f"Writing {len(fast_tbl)} fast movers...")
 
     del fast_pm_arr
