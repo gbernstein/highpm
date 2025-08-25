@@ -2,11 +2,8 @@
 This module provides functions to read and clean catalog data from FITS files.
 """
 
-from math import e
-
 import fitsio
 import numpy as np
-from torch import cat
 
 
 def read_cat_header(filename):
