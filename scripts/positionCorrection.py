@@ -1,6 +1,8 @@
 import argparse
 import os
+import re
 import sys
+from glob import glob
 from multiprocessing import Pool
 
 import numpy as np
@@ -11,9 +13,6 @@ _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-# Import implementation from package to ensure picklable targets in multiprocessing
-from highpm.position_correction import process_exposure
-
 """
 Command-line wrapper that orchestrates argument parsing and parallel mapping.
 The implementation details live in highpm.position_correction to keep the worker
@@ -22,6 +21,9 @@ function picklable for multiprocessing.
 
 
 if __name__ == "__main__":
+    # Import implementation from package to ensure picklable targets in multiprocessing
+    from highpm.position_correction import process_exposure
+
     parser = argparse.ArgumentParser(
         description=(
             "Match skim and GPR catalogs, cross-match to coadds, apply pixmappy "
@@ -57,7 +59,8 @@ if __name__ == "__main__":
     )
 
     # Exposure selection (mutually exclusive: explicit list vs .npy file)
-    group = parser.add_mutually_exclusive_group(required=True)
+    # If neither is provided, we will auto-discover all available exposures.
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
         "--expnum",
         type=int,
@@ -98,18 +101,70 @@ if __name__ == "__main__":
             "DES_EXPOSURES is not set. Provide --des-exposures or set the environment variable."
         )
 
-    # Gather exposures
+    # Helper: discover exposures from files when none provided
+    def _discover_exposures(skims_path: str, gpr_path: str) -> np.ndarray:
+        # Skims look like: D*{expnum:08d}_*.fits -> extract 8 digits before underscore
+        skim_files = glob(os.path.join(skims_path, "D*.fits"))
+        skim_expnums = set()
+        for f in skim_files:
+            bn = os.path.basename(f)
+            m = re.search(r"(\d{8})(?=_)", bn)
+            if m:
+                try:
+                    skim_expnums.add(int(m.group(1)))
+                except ValueError:
+                    pass
+
+        # GPR files look like: gpr_*{expnum:07d}.fits -> extract 7 digits before .fits
+        gpr_files = glob(os.path.join(gpr_path, "gpr_*.fits"))
+        gpr_expnums = set()
+        for f in gpr_files:
+            bn = os.path.basename(f)
+            m = re.search(r"(\d{7})(?=\.fits$)", bn)
+            if m:
+                try:
+                    gpr_expnums.add(int(m.group(1)))
+                except ValueError:
+                    pass
+
+        if not skim_expnums:
+            raise SystemExit(
+                "No skim exposures found. Checked pattern 'D*.fits' under skims-path."
+            )
+        if not gpr_expnums:
+            raise SystemExit(
+                "No GPR exposures found. Checked pattern 'gpr_*.fits' under gpr-path."
+            )
+
+        # Intersection to ensure both inputs exist per exposure
+        inter = skim_expnums & gpr_expnums
+        if not inter:
+            raise SystemExit(
+                f"No overlapping exposures between skim ({len(skim_expnums)}) and GPR ({len(gpr_expnums)})."
+            )
+        exposures = sorted(inter)
+
+        return np.array(exposures, dtype=int)
+
+    # Gather exposures from args or discover automatically
     if args.expnum is not None:
         exposures = np.array(args.expnum, dtype=int)
-    else:
+        source = "--expnum"
+    elif args.exposures_npy is not None:
         exposures = np.load(args.exposures_npy, allow_pickle=True)
+        source = "--exposures-npy"
+    else:
+        exposures = _discover_exposures(args.skims_path, args.gpr_path)
+        source = "auto-discovered"
 
     print(f"Skim Path: {args.skims_path}")
     print(f"GPR Path: {args.gpr_path}")
     print(f"Coadd Path: {args.coadd_path}")
     print(f"Output Path: {args.output_path}")
     print(f"Number of processes: {args.processes}")
-    print(f"Processing exposures: {exposures[:10]}... (total {len(exposures)})")
+    print(
+        f"Processing exposures ({source}): {exposures[:10]}... (total {len(exposures)})"
+    )
 
     # Build argument tuples and use starmap to avoid pickling partials defined in __main__
     task_args = [
