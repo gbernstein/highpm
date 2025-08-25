@@ -25,7 +25,7 @@ def __getattr__(name):
             name
         ]
     if name in {"gnomonic_plate2sky"}:
-        from .gnomonic_plate2sky import gnomonic_plate2sky as _gnomonic_plate2sky
+        from .gnomonic_converter import gnomonic_plate2sky as _gnomonic_plate2sky
 
         return _gnomonic_plate2sky
     if name in {"new_modest_fitter", "new_modest_mover"}:

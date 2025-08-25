@@ -14,7 +14,7 @@ import fitsio
 import numpy as np
 
 from ._version import __version__
-from .gnomonic_plate2sky import gnomonic_plate2sky
+from .gnomonic_converter import gnomonic_plate2sky
 
 
 def insert_header(file, config, mtype):

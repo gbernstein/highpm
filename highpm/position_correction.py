@@ -351,8 +351,13 @@ def process_exposure(expnum, skimsPath, gprPath, coaddPath, outputPath):
         defaultColor=gprHeader["DEF_COL"],
     )
 
+    updatedHeader = gprHeader
+    updatedHeader["EXPNUM"] = expnum
+
     outputFile = os.path.join(outputPath, f"updated_skim_gpr_coadd_{expnum:08d}.fits")
-    fitsio.write(outputFile, updatedData, extname="DATA", clobber=True)
+    fitsio.write(
+        outputFile, updatedData, extname="DATA", header=updatedHeader, clobber=True
+    )
     print(f"Updated data saved to {outputFile}")
 
     return
