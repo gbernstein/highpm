@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 from typing import List
 
 import fitsio
@@ -111,11 +112,40 @@ def getSkimFile(expnum, skimsPath="./"):
 
 
 def getGPRFile(expnum, gprPath="./"):
-    pattern = os.path.join(gprPath, f"gpr_*{expnum:07d}.fits")
-    gprFile = glob.glob(pattern)
-    if not gprFile:
-        raise FileNotFoundError(f"No GPR files found for exposure number {expnum}.")
-    return gprFile[0]
+    """
+    Locate a GPR file for a given exposure.
+
+    New convention: files are named like 'gpr_*{expnum:07d}_{band}.fits'.
+    If multiple bands exist for the same exposure, prefer a deterministic band order.
+    """
+    # Match any band suffix
+    pattern = os.path.join(gprPath, f"gpr_*{expnum:07d}_*.fits")
+    matches = glob.glob(pattern)
+    if not matches:
+        # Fall back to legacy naming without band (older data sets)
+        legacy = glob.glob(os.path.join(gprPath, f"gpr_*{expnum:07d}.fits"))
+        if not legacy:
+            raise FileNotFoundError(
+                f"No GPR files found for exposure number {expnum} in '{gprPath}'."
+            )
+        return legacy[0]
+
+    # If more than one match, choose preferred band order
+    preferred = ["r", "i", "z", "g"]
+    by_band = {}
+    for path in matches:
+        base = os.path.basename(path)
+        # Expect ..._{band}.fits at the end
+        m = re.search(r"_[griz]\.fits$".replace(" ", ""), base)
+        band = m.group(1) if m else None
+        by_band.setdefault(band, path)
+
+    for b in preferred:
+        if b in by_band:
+            return by_band[b]
+
+    # As a last resort, return the first match sorted lexicographically
+    return sorted(matches)[0]
 
 
 def findCoaddFile(ra0, dec0, radius=1.1, nside=32, coaddPath="./") -> List[str]:
