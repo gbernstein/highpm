@@ -34,7 +34,7 @@ def insert_header(file, config, mtype):
     return
 
 
-def insert_movers(pm_arr, file, mtype):
+def insert_movers(pm_arr, file, mtype, config):
 
     column_dtypes = [
         ("idx", "i4"),
@@ -99,6 +99,10 @@ def insert_movers(pm_arr, file, mtype):
     ra0 = 15.1083
     dec0 = -33.7186
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    ra0 = config["ra0"]
+    dec0 = config["dec0"]
+    print(f"Using user-specified projection center: RA={ra0}, Dec={dec0}")
 
     ra, dec = gnomonic_plate2sky(xi, eta, ra0, dec0)
     pmra = 1000 * p_fits[:, 2]
@@ -209,7 +213,7 @@ def insert_movers(pm_arr, file, mtype):
     for i, col in enumerate(column_dtypes):
         tbl[col[0]] = data[i]
 
-    file.write_table(tbl, extname=mtype + "_movers" )
+    file.write_table(tbl, extname=mtype + "_movers")
     return tbl
 
 
@@ -261,7 +265,7 @@ def output_fits(pm_arr, detections_idx, filename, mtype, config, outputname=None
         file = fitsio.FITS(outputname, "rw", clobber=True)
 
     print("Inserting movers...")
-    tbl = insert_movers(pm_arr, file, mtype)
+    tbl = insert_movers(pm_arr, file, mtype, config)
 
     print("Inserting detections...")
     insert_detections(pm_arr, detections_idx, file, mtype)

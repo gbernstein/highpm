@@ -169,6 +169,8 @@ if __name__ == "__main__":
         asrecarray=True,
     )
 
+    hdr = {"ra0": ra0, "dec0": dec0, "nside": args.nside, "subside": args.subside}
+
     outfilename = os.path.join(
         args.output_path, f"cleaned_detections_hp{args.healpix:05d}.fits"
     )
@@ -176,5 +178,5 @@ if __name__ == "__main__":
         print(f"Output file {outfilename} exists and --overwrite not set. Exiting.")
         sys.exit(1)
 
-    fitsio.write(outfilename, detections, clobber=True)
+    fitsio.write(outfilename, detections, header=hdr, clobber=True)
     print(f"Wrote cleaned detections to {outfilename}")

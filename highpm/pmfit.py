@@ -211,6 +211,18 @@ def err2cov(temp_cat, additional_error=False):
     return cov_xy
 
 
+def count_seasons(mjd, dt):
+    mjd_sorted = np.sort(mjd)
+
+    seasons = 1
+    limit = mjd_sorted[0] + dt
+    for mjd in mjd_sorted[1:]:
+        if mjd > limit:
+            seasons += 1
+            limit = mjd + dt
+    return seasons
+
+
 def fit5d(
     indices,
     cat,
@@ -221,6 +233,7 @@ def fit5d(
     mjd_ref=57388.0,
     minPts=5,
     minSeasons=3,
+    t_season=0.25,
     colorFrac=0.9,
     pm_prior=None,
     additional_error=False,
@@ -311,9 +324,11 @@ def fit5d(
 
     temp_cat = cat[indices]
 
-    n_seasons = np.sum(
-        np.histogram(temp_cat["MJD"] * day, range=(155, 170), bins=30)[0] > 0
-    )
+    # n_seasons = np.sum(
+    #     np.histogram(temp_cat["MJD"] * day, range=(155, 170), bins=30)[0] > 0
+    # )
+
+    n_seasons = count_seasons(temp_cat["MJD"], t_season * 365.25)
 
     if (len(temp_cat) < minPts) or (n_seasons < minSeasons):
         # Not enough points to fit
@@ -383,9 +398,11 @@ def fit5d(
             par_xy = np.delete(par_xy, iClip, axis=0)
             nClip = nClip + 1
 
-            n_seasons = np.sum(
-                np.histogram(temp_cat["MJD"] * day, range=(155, 170), bins=15)[0] > 0
-            )
+            # n_seasons = np.sum(
+            #     np.histogram(temp_cat["MJD"] * day, range=(155, 170), bins=15)[0] > 0
+            # )
+
+            n_seasons = count_seasons(temp_cat["MJD"], t_season * 365.25)
 
         else:
             # Fit is finished

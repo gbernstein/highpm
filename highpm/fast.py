@@ -150,19 +150,28 @@ def fast_movers(cat, fitter, config):
         metric="precomputed",
     ).fit(D_sparse)
 
+    # Vectorized grouping of indices by cluster label (skip noise label -1)
     obj_list = []
-    indices = np.arange(len(fast_posvel))
+    labels = clustering.labels_
+    if labels.size:
+        valid_mask = labels != -1
+        if np.any(valid_mask):
+            valid_indices = np.nonzero(valid_mask)[0]
+            valid_labels = labels[valid_mask]
 
-    for cluster_id in tqdm.tqdm(
-        np.unique(clustering.labels_), total=len(np.unique(clustering.labels_))
-    ):
-        if cluster_id == -1:
-            continue  # Skip noise points
-        cluster_mask = clustering.labels_ == cluster_id
-        cluster_indices = np.unique(indices[cluster_mask])
+            # Sort by label so equal labels are contiguous, then split once
+            order = np.argsort(valid_labels, kind="mergesort")
+            sorted_indices = valid_indices[order]
+            sorted_labels = valid_labels[order]
 
-        if len(cluster_indices) >= config["n_detections"]:
-            obj_list.append(cluster_indices.tolist())
+            # Find boundaries between different labels
+            split_points = np.flatnonzero(np.diff(sorted_labels)) + 1
+            groups = np.split(sorted_indices, split_points)
+
+            # Filter groups by required minimum detections
+            for g in groups:
+                if g.size >= config["n_detections"]:
+                    obj_list.append(g.tolist())
 
     fast_objects = obj_list
 
