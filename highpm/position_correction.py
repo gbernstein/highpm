@@ -96,7 +96,6 @@ def loadCoadd(filename):
             "MAG_AUTO_R",
             "MAG_AUTO_I",
             "MAG_AUTO_Z",
-            "MAG_AUTO_Y",
         ],
     )
     header = fitsio.read_header(filename, ext=1)
