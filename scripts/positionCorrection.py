@@ -44,7 +44,8 @@ if __name__ == "__main__":
         "--gpr-path",
         required=True,
         help=(
-            "Directory or glob prefix for GPR FITS files named 'gpr_*{expnum:07d}.fits'."
+            "Directory or glob prefix for GPR FITS files named like 'gpr_*{expnum:07d}_<band>.fits'"
+            " (e.g., gpr_something_1234567_r.fits)."
         ),
     )
     parser.add_argument(
@@ -115,12 +116,14 @@ if __name__ == "__main__":
                 except ValueError:
                     pass
 
-        # GPR files look like: gpr_*{expnum:07d}.fits -> extract 7 digits before .fits
-        gpr_files = glob(os.path.join(gpr_path, "gpr_*.fits"))
+        # GPR files look like: gpr_*{expnum:07d}_<band>.fits
+        # Extract 7-digit expnum immediately before the _<band>.fits suffix
+        # and accept common DES bands [g,r,i,z].
+        gpr_files = glob(os.path.join(gpr_path, "gpr_*_*.fits"))
         gpr_expnums = set()
         for f in gpr_files:
             bn = os.path.basename(f)
-            m = re.search(r"(\d{7})(?=\.fits$)", bn)
+            m = re.search(r"(\d{7})(?=_[griz]\.fits$)".replace(" ", ""), bn)
             if m:
                 try:
                     gpr_expnums.add(int(m.group(1)))
@@ -133,7 +136,7 @@ if __name__ == "__main__":
             )
         if not gpr_expnums:
             raise SystemExit(
-                "No GPR exposures found. Checked pattern 'gpr_*.fits' under gpr-path."
+                "No GPR exposures found. Checked pattern 'gpr_*_<band>.fits' under gpr-path."
             )
 
         # Intersection to ensure both inputs exist per exposure
