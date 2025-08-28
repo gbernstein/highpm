@@ -135,10 +135,11 @@ def getGPRFile(expnum, gprPath="./"):
     by_band = {}
     for path in matches:
         base = os.path.basename(path)
-        # Expect ..._{band}.fits at the end
-        m = re.search(r"_[griz]\.fits$".replace(" ", ""), base)
-        band = m.group(1) if m else None
-        by_band.setdefault(band, path)
+        # Expect ..._{band}.fits at the end; capture band robustly and case-insensitively
+        m = re.search(r"_([A-Za-z]+)\.fits$", base, re.IGNORECASE)
+        band = m.group(1).lower() if m else None
+        if band and band not in by_band:
+            by_band[band] = path
 
     for b in preferred:
         if b in by_band:
