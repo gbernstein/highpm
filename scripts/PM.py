@@ -48,11 +48,19 @@ def _validate_config(config: dict):
         raise ValueError("Missing required config keys: " + ", ".join(missing))
 
 
-def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> int:
+def run_pm(config_path: str, catname: str, output_name: str | None = None) -> int:
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     _validate_config(config)
+
+    if not (np.isin("ra0", config) or np.isin("dec0", config)):
+        from highpm.cat_reader import read_cat_header
+
+        cat_header = read_cat_header(catname)
+
+        config["ra0"] = cat_header["ra0"]
+        config["dec0"] = cat_header["dec0"]
 
     print(f"Loading catalog: {catname}")
     cat = read_cat_data(catname)
@@ -69,6 +77,7 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
         fit5d,
         time_sep=fitting["time_sep"],
         minSeasons=fitting["minSeasons"],
+        t_season=fitting["t_season"],
         chisqClip=fitting["chisqClip"],
         parallax_prior=fitting["parallax_prior"],
         color_prior=fitting["color_prior"],
@@ -80,6 +89,8 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
     n_modests = int(config["n_modests"])
     fit_detection_arr = np.zeros((n_modests, len(cat)), dtype=bool)
 
+    outname = None if output_name is None else output_name
+
     for i_round in range(n_modests):
         modest_pm_arr = new_modest_fitter(
             cat[~fit_detection_arr[i_round - 1]],
@@ -90,11 +101,7 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
         detections_idx = cat_idx[~fit_detection_arr[i_round - 1]]
 
         if len(modest_pm_arr) != 0:
-            outname = (
-                None
-                if output_prefix is None
-                else f"{output_prefix}_modest{i_round + 1}"
-            )
+
             modest_tbl = output_fits(
                 modest_pm_arr,
                 detections_idx,
@@ -121,13 +128,10 @@ def run_pm(config_path: str, catname: str, output_prefix: str | None = None) -> 
         # free intermediates sooner
         del modest_pm_arr
 
-    outmask_name = output_prefix if output_prefix is not None else None
-
     fast_pm_arr = fast_movers(cat[~fit_detection_arr[-1]], part_fit5d, config)
     detections_idx = cat_idx[~fit_detection_arr[-1]]
 
     if len(fast_pm_arr) != 0:
-        outname = None if output_prefix is None else f"{output_prefix}_fast"
         fast_tbl = output_fits(
             fast_pm_arr,
             detections_idx,
@@ -153,7 +157,7 @@ def main():
     parser.add_argument("config", help="Path to YAML configuration file.")
     parser.add_argument("catalog", help="Path to input catalog FITS file.")
     parser.add_argument(
-        "--output-prefix",
+        "--output-name",
         default=None,
         help=(
             "Optional base path/name for outputs. If omitted, filenames are "
@@ -163,7 +167,7 @@ def main():
 
     args = parser.parse_args()
     try:
-        code = run_pm(args.config, args.catalog, args.output_prefix)
+        code = run_pm(args.config, args.catalog, args.output_name)
     except Exception as e:
         print(f"Error: {e}")
         return 1

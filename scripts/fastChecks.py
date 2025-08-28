@@ -100,6 +100,14 @@ def run_fast_checks(
 
     _validate_config(config)
 
+    if not (np.isin("ra0", config) or np.isin("dec0", config)):
+        from highpm.cat_reader import read_cat_header
+
+        cat_header = read_cat_header(detections_path)
+
+        config["ra0"] = cat_header["ra0"]
+        config["dec0"] = cat_header["dec0"]
+
     # Load detections and clean
     print(f"Loading detections: {detections_path}")
     cat = read_cat_data(detections_path)

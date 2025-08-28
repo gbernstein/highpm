@@ -19,7 +19,7 @@ def read_cat_header(filename):
         The metadata header of the catalog file as a dictionary.
     """
 
-    header = fitsio.read_header(filename)
+    header = fitsio.read_header(filename, ext=1)
     return header
 
 
@@ -36,7 +36,7 @@ def read_cat_data(filename):
         The catalog data read from the specified file.
     """
 
-    cat = fitsio.read(filename)
+    cat = fitsio.read(filename, ext=1)
     return cat
 
 
