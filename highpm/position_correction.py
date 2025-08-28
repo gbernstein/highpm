@@ -125,9 +125,10 @@ def getGPRFile(expnum, gprPath="./"):
         # Fall back to legacy naming without band (older data sets)
         legacy = glob.glob(os.path.join(gprPath, f"gpr_*{expnum:07d}.fits"))
         if not legacy:
-            raise FileNotFoundError(
-                f"No GPR files found for exposure number {expnum} in '{gprPath}'."
-            )
+            # raise FileNotFoundError(
+            #     f"No GPR files found for exposure number {expnum} in '{gprPath}'."
+            # )
+            return None
         return legacy[0]
 
     # If more than one match, choose preferred band order
@@ -359,6 +360,10 @@ def process_exposure(expnum, skimsPath, gprPath, coaddPath, outputPath):
 
     skimFile = getSkimFile(expnum, skimsPath)
     gprFile = getGPRFile(expnum, gprPath)
+
+    if gprFile is None:
+        print(f"No GPR file found for exposure {expnum}. Skipping.")
+        return
 
     print(f"Skim file: {skimFile}")
     print(f"GPR file: {gprFile}")
