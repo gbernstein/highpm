@@ -7,7 +7,7 @@ mjd_ref: 57388.0 # Reference MJD for the data in days
 # ra0: 15.1083 # RA of the reference point in degrees
 # dec0: -33.7186 # Dec of the reference point in degrees
 
-cores: 30 # Number of CPU cores to use for parallel processing
+cores: -1 # Number of CPU cores to use for parallel processing
 chunksize: 10000 # Size of chunks for parallel processing
 
 n_modests: 3 # Number of modest proper motion iterations to perform
