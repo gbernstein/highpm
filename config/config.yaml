@@ -10,7 +10,7 @@ mjd_ref: 57388.0 # Reference MJD for the data in days
 cores: 56 # Number of CPU cores to use for parallel processing
 chunksize: 10000 # Size of chunks for parallel processing
 
-n_modests: 3 # Number of modest proper motion iterations to perform
+n_modests: 2 # Number of modest proper motion iterations to perform
 
 modest:
   linklength: 1.0 # Maximum link length in arcseconds
