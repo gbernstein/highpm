@@ -1,6 +1,6 @@
 # Generic Configuration for PM.py
 
-n_detections: 8 # Minimum number of detections required to fit a proper motion
+n_detections: 5 # Minimum number of detections required to fit a proper motion
 
 mjd_ref: 57388.0 # Reference MJD for the data in days
 
@@ -38,8 +38,8 @@ fastcheck:
 min_overlap: 0.79
 
 fitting:
-  time_sep: 1.8 # Minimum time separation in years
-  minSeasons: 4 # Minimum number of distinct seasons with detections
+  time_sep: 1.5 # Minimum time separation in years
+  minSeasons: 3 # Minimum number of distinct seasons with detections
   t_season: 0.25 # Minimum time separation to consider a new season in years
   chisqClip: 11.0 # Chi-squared clipping threshold
   parallax_prior: 0.15 # Parallax prior in "
