@@ -1,22 +1,22 @@
 # Generic Configuration for PM.py
 
-n_detections: 5 # Minimum number of detections required to fit a proper motion
+n_detections: 8 # Minimum number of detections required to fit a proper motion
 
 mjd_ref: 57388.0 # Reference MJD for the data in days
 
 # ra0: 15.1083 # RA of the reference point in degrees
 # dec0: -33.7186 # Dec of the reference point in degrees
 
-cores: 56 # Number of CPU cores to use for parallel processing
+cores: 32 # Number of CPU cores to use for parallel processing
 chunksize: 10000 # Size of chunks for parallel processing
 
-n_modests: 2 # Number of modest proper motion iterations to perform
+n_modests: 3 # Number of modest proper motion iterations to perform
 
 modest:
   linklength: 1.0 # Maximum link length in arcseconds
   min_dt: 0.8 # Minimum time difference in years
   eps: 2.0 # DBSCAN epsilon value
-  min_pairs: 4 # Minimum number of pairs to consider a group
+  min_pairs: 7 # Minimum number of pairs to consider a group
   shared_pairs: 0.8 # Maximum fraction of shared pairs to consider a group
 
 pm_lim: 1000 # Maximum proper motion in mas/yr for removal
@@ -25,7 +25,7 @@ pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal
 fast:
   pairlength: 20.0 # Maximum pair length in arcseconds
   linklength: 1.0 # Maximum link length in arcseconds
-  min_pairs: 4 # Minimum number of pairs to consider a group
+  min_pairs: 7 # Minimum number of pairs to consider a group
   min_sep: 0.5 # Minimum separation in arcseconds
   max_sep: 20.0 # Maximum separation in arcseconds
   eps: 2.0 # DBSCAN epsilon value
