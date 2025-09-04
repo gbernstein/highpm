@@ -13,6 +13,25 @@ from .utils import arborist, filter_list, new_posvel
 # =============================================================================
 
 
+def cleanOverlapping(partition, fast_candidates, config):
+    partition_candidates = [
+        fast_candidates[partition[i]] for i in range(len(partition))
+    ]
+    for i in range(len(partition_candidates)):
+        for j in range(i, len(partition_candidates)):
+            min_len_id = np.argmin(
+                [len(partition_candidates[i]), len(partition_candidates[j])]
+            )
+            min_len = len(partition_candidates[min_len_id])
+            overlap = len(partition_candidates[i] & partition_candidates[j]) / min_len
+            if overlap > config["min_overlap"]:
+                partition_candidates[[i, j][min_len_id]] = (
+                    partition_candidates[i] | partition_candidates[j]
+                )
+
+    return partition_candidates
+
+
 def fast_movers(cat, fitter, config):
     """Identify and fit fast-moving objects from a catalog of detections. This
     function processes a catalog of astronomical detections to identify
@@ -185,17 +204,37 @@ def fast_movers(cat, fitter, config):
         fast_obj += [list(np.unique(temp_object))]
     fast_candidates = [set(i) for i in fast_obj if len(i) > config["n_detections"]]
 
-    print(len(fast_candidates), "fast candidates found.")
+    n_fast_candidates = len(fast_candidates)
+    print(n_fast_candidates, "fast candidates found.")
 
-    for i in range(len(fast_candidates)):
-        for j in range(i, len(fast_candidates)):
-            min_len_id = np.argmin([len(fast_candidates[i]), len(fast_candidates[j])])
-            min_len = len(fast_candidates[min_len_id])
-            overlap = len(fast_candidates[i] & fast_candidates[j]) / min_len
-            if overlap > config["min_overlap"]:
-                fast_candidates[[i, j][min_len_id]] = (
-                    fast_candidates[i] | fast_candidates[j]
-                )
+    fast_candidate_ra = []
+    fast_candidate_dec = []
+    for candidate in fast_candidates:
+        candidate = list(candidate)
+        candidate_xi = np.median(cat["XI"][candidate])
+        candidate_eta = np.median(cat["ETA"][candidate])
+        fast_candidate_ra.append(candidate_xi)
+        fast_candidate_dec.append(candidate_eta)
+
+    fast_candidate_pos = np.array([fast_candidate_ra, fast_candidate_dec]).T
+    fast_candidate_tree = spspace.KDTree(
+        fast_candidate_pos, balanced_tree=True, compact_nodes=True
+    )
+    flat_candidate_tree = fast_candidate_tree.indices
+
+    chunksize = n_fast_candidates // config["cores"]
+    remainder = n_fast_candidates % config["cores"]
+
+    sizes = np.full(config["cores"], chunksize)
+    sizes[:remainder] += 1
+
+    boundaries = np.cumsum(sizes)[:-1]
+    partitions = np.split(flat_candidate_tree, boundaries)
+
+    fast_candidates = [
+        cleanOverlapping(part, fast_candidates, config) for part in partitions
+    ]
+    fast_candidates = [item for sublist in fast_candidates for item in sublist]
 
     fast_pm_obj = filter_list(fast_candidates)
 
