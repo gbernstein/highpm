@@ -97,7 +97,47 @@ def detection_search(trees, xi, eta, ra, dec, pmra, pmdec, parallax, mjd, sol, c
     return indicies
 
 
-def fast_checker(cat, fast_cat, fitter, config):
+def slow_mover_search(slow_tree, xi, eta, config):
+
+    idx = slow_tree.query_ball_point(
+        np.array([xi, eta]),
+        # 10,
+        config["fastcheck"]["search_radius"],
+    )
+
+    return idx
+
+
+def check_slow_detections(cat, slow_cat, fast_check_pm_detections, config):
+    """Returns indicies of fast_check_pm_detections that are associated with slow movers."""
+    slow_cat = slow_cat[slow_cat["pm"] < config["fastcheck"]["slow_pm_threshold"]]
+
+    slow_tree = arborist(3600.0 * slow_cat["xi"], 3600.0 * slow_cat["eta"])
+
+    fast_detections_mask = np.ones(len(fast_check_pm_detections), dtype=bool)
+
+    for i, detection in enumerate(fast_check_pm_detections):
+        xi = 3600.0 * cat[detection]["XI"]
+        eta = 3600.0 * cat[detection]["ETA"]
+
+        slow_mover = slow_mover_search(
+            slow_tree,
+            xi,
+            eta,
+            config,
+        )
+
+        if len(slow_mover) > 0:
+            fast_detections_mask[i] = False
+
+    print(
+        f"Filtered {np.sum(~fast_detections_mask)} detections associated with slow movers."
+    )
+
+    return np.array(fast_check_pm_detections)[fast_detections_mask]
+
+
+def fast_checker(cat, fast_cat, slow_cat, fitter, config):
 
     mjd = np.unique(cat["MJD"])
 
@@ -126,7 +166,15 @@ def fast_checker(cat, fast_cat, fitter, config):
             config,
         )
 
+        fast_check_pm_detections = check_slow_detections(
+            cat, slow_cat, fast_check_pm_detections, config
+        )
+
         fast_check_pm_lol.append(fast_check_pm_detections)
+
+    fast_check_pm_lol = [
+        i for i in fast_check_pm_lol if len(i) >= config["n_detections"]
+    ]
 
     partial_new_modest_mover = partial(new_modest_mover, mode="fast")
 
