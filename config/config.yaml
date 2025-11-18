@@ -13,7 +13,7 @@ chunksize: 10000 # Size of chunks for parallel processing
 n_modests: 3 # Number of modest proper motion iterations to perform
 
 modest:
-  linklength: 1.0 # Maximum link length in arcseconds
+  linklength: 1.1 # Maximum link length in arcseconds
   min_dt: 0.8 # Minimum time difference in years
   eps: 2.0 # DBSCAN epsilon value
   min_pairs: 7 # Minimum number of pairs to consider a group
@@ -24,7 +24,7 @@ pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal
 
 fast:
   pairlength: 20.0 # Maximum pair length in arcseconds
-  linklength: 1.0 # Maximum link length in arcseconds
+  linklength: 0.9 # Maximum link length in arcseconds
   min_pairs: 7 # Minimum number of pairs to consider a group
   min_sep: 0.5 # Minimum separation in arcseconds
   max_sep: 20.0 # Maximum separation in arcseconds
@@ -33,7 +33,8 @@ fast:
   shared_pairs: 0.8 # Maximum fraction of shared pairs to consider a group
 
 fastcheck:
-  search_radius: 1.0 # Search radius in arcseconds
+  search_radius: 1.0 # Search radius in arcseconds]
+  slow_pm_threshold: 100 # Proper motion threshold in mas/yr to consider a source as slow
 
 min_overlap: 0.79
 

@@ -19,6 +19,8 @@ import os
 import sys
 from functools import partial
 
+from httpx import delete
+
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
@@ -120,9 +122,19 @@ def run_fast_checks(
 
     # Load fast catalog to check
     print(f"Loading fast-check catalog: {fastcat_path}")
+    slow_cat = [
+        fitsio.read(fastcat_path, ext="modest{i}_movers".format(i=i))
+        for i in range(1, config["n_modests"] + 1)
+    ]
+    slow_cat = np.concatenate(slow_cat)
     fast_cat = fitsio.read(fastcat_path, ext="fast_movers")
     _validate_fastcat_columns(fast_cat)
     print(f"Fast-check objects loaded: {len(fast_cat)}")
+
+    overwrite = False
+    if "fastcheck" in fitsio.FITS(fastcat_path)[-1].get_extname():
+        overwrite = True
+        print("Overwriting existing fastcheck extensions from fastcat.")
 
     # Build fitter from config
     fit_cfg = config["fitting"]
@@ -143,7 +155,7 @@ def run_fast_checks(
         "Running fast checker with search radius (deg):",
         config["fastcheck"]["search_radius"],
     )
-    pm_arr = fast_checker(cat, fast_cat, part_fit5d, config)
+    pm_arr = fast_checker(cat, fast_cat, slow_cat, part_fit5d, config)
 
     if pm_arr is None or len(pm_arr) == 0:
         print("No fast-check movers found.")
@@ -152,7 +164,12 @@ def run_fast_checks(
     # Write outputs
     outname = None if output_prefix is None else f"{output_prefix}_fastcheck"
     tbl = output_fits(
-        pm_arr, cat_idx, detections_path, "fastcheck", config=config, outputname=outname
+        pm_arr,
+        cat_idx,
+        fastcat_path,
+        "fastcheck",
+        config=config,
+        outputname=fastcat_path if outname is None else f"{outname}_movers.fits",
     )
     print(f"Wrote {len(tbl)} fast-check movers.")
     return 0

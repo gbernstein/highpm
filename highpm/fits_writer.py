@@ -213,7 +213,16 @@ def insert_movers(pm_arr, file, mtype, config):
     for i, col in enumerate(column_dtypes):
         tbl[col[0]] = data[i]
 
-    file.write_table(tbl, extname=mtype + "_movers")
+    extnum = None
+    if mtype + "_movers" in [file[i].get_extname() for i in range(len(file))]:
+        extnum = np.argwhere(
+            np.array([file[i].get_extname() for i in range(len(file))])
+            == mtype + "_movers"
+        )[0][0]
+        print(f"Overwriting existing {mtype}_movers extension.")
+        file[extnum].write(tbl)
+    else:
+        file.write_table(tbl, extname=mtype + "_movers")
     return tbl
 
 
@@ -243,7 +252,16 @@ def insert_detections(pm_arr, detections_idx, file, mtype):
 
     detection_tbl = np.concatenate(detection_tbl_list, axis=0)
 
-    file.write_table(detection_tbl, extname=mtype + "_detections")
+    extnum = None
+    if mtype + "_detections" in [file[i].get_extname() for i in range(len(file))]:
+        extnum = np.argwhere(
+            np.array([file[i].get_extname() for i in range(len(file))])
+            == mtype + "_detections"
+        )[0][0]
+        print(f"Overwriting existing {mtype}_detections extension.")
+        file[extnum].write(detection_tbl)
+    else:
+        file.write_table(detection_tbl, extname=mtype + "_detections")
 
     return
 
@@ -254,6 +272,7 @@ def open_movers(filename):
 
 
 def output_fits(pm_arr, detections_idx, filename, mtype, config, outputname=None):
+
     if outputname is None:
         outputname = filename[:-5] + f"_movers.fits"
 
