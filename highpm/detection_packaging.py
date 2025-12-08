@@ -49,7 +49,6 @@ def clean_healpix_detections(detections, ipix, nside=32, subside=16):
     This function removes detections that are more than 'overlap' degrees away
     from the edge of the healpixel.
     """
-
     npix_sub = hp.nside2npix(nside * subside)
     theta_sub, phi_sub = hp.pix2ang(nside * subside, np.arange(npix_sub))
     parent = hp.ang2pix(nside, theta_sub, phi_sub)
