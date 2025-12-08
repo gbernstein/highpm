@@ -6,7 +6,9 @@ single epoch detections from ground based surveys.
 import argparse
 import os
 import sys
+import re
 from functools import partial
+from glob import glob
 
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -146,6 +148,13 @@ def run_pm(config_path: str, catname: str, output_name: str | None = None) -> in
     print("Done!")
     return 0
 
+def select_hp(paths, hp_number):
+    pattern = re.compile(r"hp(\d+)\.fits$")
+    for p in paths:
+        m = pattern.search(p)
+        if m and int(m.group(1)) == hp_number:
+            return p
+    return None
 
 def main():
     parser = argparse.ArgumentParser(
@@ -154,8 +163,8 @@ def main():
             "modest and fast mover algorithms."
         )
     )
-    parser.add_argument("config", help="Path to YAML configuration file.")
-    parser.add_argument("catalog", help="Path to input catalog FITS file.")
+    parser.add_argument("--config", help="Path to YAML configuration file.")
+    parser.add_argument("--catalog", help="Path to input catalog FITS file.")
     parser.add_argument(
         "--output-name",
         default=None,
@@ -165,9 +174,27 @@ def main():
         ),
     )
 
+    parser.add_argument("--detections", help="Path to directory of detections catalogs.")
+    parser.add_argument("--index", type=int, help="Index of healpixels in --healpix-npy.")
+    parser.add_argument("--healpix-npy", help="Path to file with array of heapixels to process.")
+
+
     args = parser.parse_args()
+
+    if args.catalog is None:
+        healpixToDo = np.load(args.healpix_npy,allow_pickle=True)
+        print(args.index,type(args.index))
+        healpix = healpixToDo[args.index]
+        detection_cats = glob(args.detections)
+        catalog = select_hp(detection_cats,healpix)
+        output_name = args.output_name + f"PM_hp{healpix:05d}.fits"
+    else:
+        catalog = args.catalog
+
+    print(output_name)
+
     try:
-        code = run_pm(args.config, args.catalog, args.output_name)
+        code = run_pm(args.config, catalog, output_name)
     except Exception as e:
         print(f"Error: {e}")
         return 1

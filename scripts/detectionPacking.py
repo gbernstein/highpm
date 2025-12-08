@@ -38,13 +38,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--healpix",
-        type=int,
-        required=True,
-        help="HEALPix pixel number to process.",
-    )
-
-    parser.add_argument(
         "--exposures-file",
         required=True,
         help=(
@@ -93,21 +86,40 @@ if __name__ == "__main__":
         help="Overwrite existing output files if they exist.",
     )
 
+    parser.add_argument(
+        "--healpix",
+        type=int,
+        help="HEALPix pixel number to process.",
+    )
+    parser.add_argument(
+        "--index",
+        type=int,
+    )
+    parser.add_argument(
+        "--healpix-npy",
+    )
+
     args = parser.parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
 
+    if args.healpix is None:
+        healpixels = np.load(args.healpix_npy,allow_pickle=True)
+        healpix = healpixels[args.index]
+    else:
+        healpix = args.healpix
+
     exposure_data = fitsio.read(args.exposures_file)
     expnum = np.array(exposure_data["expnum"], dtype="i8")
-    epxra = np.array(exposure_data["ra"], dtype="f8")
+    expra = np.array(exposure_data["ra"], dtype="f8")
     expdec = np.array(exposure_data["dec"], dtype="f8")
 
     exposures = get_exposures_near_healpix(
-        args.healpix, epxra, expdec, expnum, nside=args.nside
+        healpix, expra, expdec, expnum, nside=args.nside
     )
 
     detection_files = sorted(
-        glob(os.path.join(args.detection_path, "updated_skim_gpr_coadd_*.fits"))
+        glob(os.path.join(args.detection_path, "[griz]/updated_skim_gpr_coadd_*.fits"))
     )
     if len(detection_files) == 0:
         print(f"No detection files found in {args.detection_path}")
@@ -121,8 +133,9 @@ if __name__ == "__main__":
             and int(match.group(1)) in exposures
         )
     ]
+
     if len(detection_files) == 0:
-        print(f"No detection files match exposures for HEALPix {args.healpix}")
+        print(f"No detection files match exposures for HEALPix {healpix}")
         sys.exit(1)
 
     print(f"Found {len(detection_files)} detection files. Concatenating...")
@@ -136,7 +149,7 @@ if __name__ == "__main__":
     print(f"Detections after SNR cleaning: {len(detections)}")
 
     detections = clean_healpix_detections(
-        detections, args.healpix, nside=args.nside, subside=args.subside
+        detections, healpix, nside=args.nside, subside=args.subside
     )
     print(f"Detections after HEALPix cleaning: {len(detections)}")
 
@@ -144,7 +157,7 @@ if __name__ == "__main__":
         print("No detections remain after cleaning. Exiting.")
         sys.exit(0)
 
-    ra0, dec0 = get_healpix_center(args.healpix, nside=args.nside)
+    ra0, dec0 = get_healpix_center(healpix, nside=args.nside)
     xi, eta, dxi, deta = projectGnomonic(
         detections["BEST_RA"],
         detections["BEST_DEC"],
@@ -172,7 +185,7 @@ if __name__ == "__main__":
     hdr = {"ra0": ra0, "dec0": dec0, "nside": args.nside, "subside": args.subside}
 
     outfilename = os.path.join(
-        args.output_path, f"cleaned_detections_hp{args.healpix:05d}.fits"
+        args.output_path, f"cleaned_detections_hp{healpix:05d}.fits"
     )
     if os.path.exists(outfilename) and not args.overwrite:
         print(f"Output file {outfilename} exists and --overwrite not set. Exiting.")

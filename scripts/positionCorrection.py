@@ -88,6 +88,13 @@ if __name__ == "__main__":
         default=os.cpu_count() or 1,
         help="Number of parallel processes to use (default: CPU count).",
     )
+    parser.add_argument(
+        "--index",
+        type=int,
+        help=(
+            "Index of exposure number in --exposures-npy."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -160,19 +167,23 @@ if __name__ == "__main__":
         exposures = _discover_exposures(args.skims_path, args.gpr_path)
         source = "auto-discovered"
 
+    if args.index is not None and args.exposures_npy is not None:
+        print(1*args.index, 1*(1+args.index))
+        exposures = np.array([exposures[1*args.index:(1*(1+args.index))]], dtype=int)
+
     print(f"Skim Path: {args.skims_path}")
     print(f"GPR Path: {args.gpr_path}")
     print(f"Coadd Path: {args.coadd_path}")
     print(f"Output Path: {args.output_path}")
     print(f"Number of processes: {args.processes}")
     print(
-        f"Processing exposures ({source}): {exposures[:10]}... (total {len(exposures)})"
+        f"Processing exposures ({source}): {exposures[0][:10]}... (total {len(exposures[0])})"
     )
 
     # Build argument tuples and use starmap to avoid pickling partials defined in __main__
     task_args = [
-        (int(expnum), args.skims_path, args.gpr_path, args.coadd_path, args.output_path)
-        for expnum in exposures
+        (expnum, args.skims_path, args.gpr_path, args.coadd_path, args.output_path)
+        for expnum in exposures[0]
     ]
 
     with Pool(processes=args.processes) as pool:
