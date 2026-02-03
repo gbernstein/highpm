@@ -70,6 +70,7 @@ def detections_for_removal(pm_arr, config):
     pmra_err = 1000 * cov[:, 2, 2]
     pmdec = 1000 * p_fits[:, 3]
     pmdec_err = 1000 * cov[:, 3, 3]
+
     try:
         removals = np.concatenate(
             [

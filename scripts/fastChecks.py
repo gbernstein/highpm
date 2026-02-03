@@ -19,8 +19,6 @@ import os
 import sys
 from functools import partial
 
-from httpx import delete
-
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
