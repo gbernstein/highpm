@@ -98,6 +98,10 @@ if __name__ == "__main__":
                 "expnum"
             ]
 
+            print(
+                f"Found {len(valid_exposures)} exposures in healpix {healpix} and neighbors."
+            )
+
         # Skims look like: D*{expnum:08d}_*.fits -> extract 8 digits before underscore
         output_files = glob(os.path.join(output_path, "position_corrected_*.fits"))
         output_expnums = set()
