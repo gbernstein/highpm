@@ -42,7 +42,7 @@ if __name__ == "__main__":
 
     def _discover_exposures(gpr_path: str,output_path: str) -> np.ndarray:
         # Skims look like: D*{expnum:08d}_*.fits -> extract 8 digits before underscore
-        output_files = glob(os.path.join(output_path, "updated_skim_gpr_coadd_*.fits"))
+        output_files = glob(os.path.join(output_path, "position_corrected_*.fits"))
         print(len(output_files))
         output_expnums = set()
         for f in output_files:
