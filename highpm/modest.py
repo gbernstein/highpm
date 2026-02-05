@@ -183,6 +183,8 @@ def new_modest_fitter(cat, fitter, config):
     modest_friends = find_friend(modest_tree, linklength, cores=config["cores"])
     modest_groups = friends_of_friends(modest_friends)
 
+    print(f"Initial modest mover groups found: {len(modest_groups)}")
+
     modest_groups = [i for i in modest_groups if len(i) >= config["n_detections"]]
 
     partial_new_modest_mover = partial(new_modest_mover, mode="modest")

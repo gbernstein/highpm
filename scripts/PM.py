@@ -10,6 +10,8 @@ import re
 from functools import partial
 from glob import glob
 
+import fitsio
+
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
@@ -68,7 +70,11 @@ def run_pm(config_path: str, catname: str, output_name: str | None = None) -> in
     cat = read_cat_data(catname)
     print(f"Detections loaded: {len(cat)}")
 
-    cleanmask = clean_cat(cat)
+    completeness_cat = fitsio.read(
+        "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.positions.fits"
+    )
+
+    cleanmask = clean_cat(cat, completeness_cat, 0.05)
     cat_idx = np.arange(len(cat))[cleanmask]
     cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
@@ -115,23 +121,34 @@ def run_pm(config_path: str, catname: str, output_name: str | None = None) -> in
             print(f"Writing {len(modest_tbl)} modest movers... (round {i_round + 1})")
 
             modest_detections = detections_for_removal(modest_pm_arr, config)
+            fit_detection_arr[i_round] = fit_detection_arr[i_round - 1].copy()
+            temp_detection_arr = fit_detection_arr[
+                i_round, ~fit_detection_arr[i_round - 1]
+            ]
             if len(modest_detections) != 0:
-                fit_detection_arr[i_round] = fit_detection_arr[i_round - 1].copy()
-                temp_detection_arr = fit_detection_arr[
-                    i_round, ~fit_detection_arr[i_round - 1]
-                ]
                 temp_detection_arr[modest_detections] = True
-                fit_detection_arr[i_round, ~fit_detection_arr[i_round - 1]] = (
-                    temp_detection_arr
-                )
+            fit_detection_arr[i_round, ~fit_detection_arr[i_round - 1]] = (
+                temp_detection_arr
+            )
+
         else:
             print(f"No modest movers found in round {i_round + 1}.")
+            fit_detection_arr[-1] = fit_detection_arr[i_round - 1]
+            break
 
         # free intermediates sooner
         del modest_pm_arr
 
+    print("Detections remaining for fast mover search:", np.sum(~fit_detection_arr[-1]))
+
     fast_pm_arr = fast_movers(cat[~fit_detection_arr[-1]], part_fit5d, config)
     detections_idx = cat_idx[~fit_detection_arr[-1]]
+
+    # fitsio.write(
+    #     "remaining_detections.fits",
+    #     cat[~fit_detection_arr[-1]],
+    #     overwrite=True,
+    # )
 
     if len(fast_pm_arr) != 0:
         fast_tbl = output_fits(
