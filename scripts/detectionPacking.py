@@ -119,7 +119,7 @@ if __name__ == "__main__":
     )
 
     detection_files = sorted(
-        glob(os.path.join(args.detection_path, "[griz]/updated_skim_gpr_coadd_*.fits"))
+        glob(os.path.join(args.detection_path, "[griz]/position_corrected_*.fits"))
     )
     if len(detection_files) == 0:
         print(f"No detection files found in {args.detection_path}")
@@ -191,5 +191,5 @@ if __name__ == "__main__":
         print(f"Output file {outfilename} exists and --overwrite not set. Exiting.")
         sys.exit(1)
 
-    fitsio.write(outfilename, detections, header=hdr, clobber=True)
+    fitsio.write(outfilename, detections, header=hdr, clobber=True) 
     print(f"Wrote cleaned detections to {outfilename}")

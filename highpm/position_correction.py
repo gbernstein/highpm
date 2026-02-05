@@ -28,8 +28,12 @@ def loadSkim(filename):
             "SPREAD_MODEL",
             "SPREADERR_MODEL",
             "ERRAWIN_WORLD",
+            "ERRBWIN_WORLD",
+            "ERRTHETAWIN_J2000",
             "FLUX_PSF",
             "FLUXERR_PSF",
+            "FLUX_AUTO",
+            "FLUXERR_AUTO",
             "FLAGS",
             "IMAFLAGS_ISO",
         ],
@@ -389,7 +393,7 @@ def process_exposure(expnum, skimsPath, gprPath, coaddPath, outputPath):
     updatedHeader = gprHeader
     updatedHeader["EXPNUM"] = expnum
 
-    outputFile = os.path.join(outputPath, f"updated_skim_gpr_coadd_{expnum:08d}.fits")
+    outputFile = os.path.join(outputPath, f"position_corrected_{expnum:08d}.fits")
     fitsio.write(
         outputFile, updatedData, extname="DATA", header=updatedHeader, clobber=True
     )

@@ -177,6 +177,16 @@ def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
 
         import fitsio
 
+        
+        print(60*"=")
+        print(60*"!")
+        print(60*"=")
+        print("The completeness cut should use MAG_AUTO instead of MAG_PSF!")
+        print("Check skims for single epoch MAG_AUTO")
+        print(60*"=")
+        print(60*"!")
+        print(60*"=")
+
         zp_cat = fitsio.read("/home/vwetzell/gitrepos/highpm/data/zeropoint.fits")
         mags = flux_to_mag(
             catname["EXPNUM"], catname["CCDNUM"], catname["FLUX_PSF"], zp_cat
