@@ -114,7 +114,7 @@ def detection_completeness(mags, expnum, band):
     print("Shape expnum:", expnum.shape)
 
     full_completeness_cat = fitsio.read(
-        "../data/y6a1c.exposures.positions.fits",
+        "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.positions.fits",
         ext=1,
         columns=["expnum", "m50", "k", "c"],
     )
@@ -142,7 +142,7 @@ def detection_completeness(mags, expnum, band):
 def fov_mask(ra, dec, expnum):
 
     full_corners_cat = fitsio.read(
-        "../data/y6a1.ccdcorners.fits.gz",
+        "/home/vwetzell/gitrepos/highpm/data/y6a1.ccdcorners.fits.gz",
         ext=1,
         columns=["expnum", "ccdnum", "ra", "dec"],
     )
@@ -364,8 +364,8 @@ def generate_fake_detections(
             ("HAS_UNIQUE_COLOR", "i1"),
             ("BAND", "<U1"),
             ("FLAGS", ">i2"),
-            ("FLUX_PSF", ">f4"),
-            ("FLUXERR_PSF", ">f4"),
+            ("FLUX_AUTO", ">f4"),
+            ("FLUXERR_AUTO", ">f4"),
             ("SPREAD_MODEL", ">f4"),
             ("SPREADERR_MODEL", ">f4"),
             ("IMAFLAGS_ISO", ">i2"),
@@ -406,8 +406,8 @@ def generate_fake_detections(
         unique_observations["BAND"][np.newaxis, :], len(fake_stars), axis=0
     )[mask]
     fake_detections["FLAGS"] = 0
-    fake_detections["FLUX_PSF"] = 1e4
-    fake_detections["FLUXERR_PSF"] = 100.0
+    fake_detections["FLUX_AUTO"] = 1e5
+    fake_detections["FLUXERR_AUTO"] = 100.0
     fake_detections["SPREAD_MODEL"] = 0.0
     fake_detections["SPREADERR_MODEL"] = 0.001
     fake_detections["IMAFLAGS_ISO"] = 0

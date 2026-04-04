@@ -86,8 +86,8 @@ def generate_fake_star_catalog(
     ra, dec = gnomonic_plate2sky(xi, eta, ra_center, dec_center)
 
     # Generate proper motions
-    uniform_pm = rng.uniform(0, 20, int(n_stars * 0.2))
-    exp_pm = rng.exponential(1.0 , len(ra) - int(n_stars * 0.2))
+    uniform_pm = rng.uniform(0, 20, int(n_stars * 0.05))
+    exp_pm = rng.exponential(1.0 , len(ra) - int(n_stars * 0.05))
     exp_pm = np.clip(exp_pm, 0, 20)
 
     pm = np.concatenate([uniform_pm, exp_pm])
@@ -101,8 +101,8 @@ def generate_fake_star_catalog(
     parallax = rng.exponential(1.0 / 10.0, n_stars)
 
     # Generate magnitudes and colors
-    g_mag = rng.uniform(20, 27, n_stars)
-    gi_color = rng.normal(-1, 1.8, n_stars)
+    g_mag = rng.uniform(17, 30, n_stars)
+    gi_color = rng.uniform(-3, 5, n_stars)
 
     r_mag, i_mag, z_mag = generate_fake_mags(g_mag, gi_color)
 

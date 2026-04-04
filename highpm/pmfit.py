@@ -94,7 +94,10 @@ def singleFit(
     else:
         # Build 2 x N x 5 matrix of coefficients
         A = np.array(
-            [[one, zero, t, zero, par_xy[:, 0]], [zero, one, zero, t, par_xy[:, 1]]]
+            [
+                [one, zero, t, zero, par_xy[:, 0]],
+                [zero, one, zero, t, par_xy[:, 1]],
+            ]
         )
 
     A = np.swapaxes(A, 1, 2)
@@ -425,6 +428,7 @@ def fit5d(
                     (mag_mode_n <= colorFrac * len(temp_cat))
                     or (g_mag == -99.0)
                     or (i_mag == -99.0)
+                    # or (color is extreme)
                 ):
                     dxy_dcolor = (
                         np.array([temp_cat["DXI_DCOLOR"], temp_cat["DETA_DCOLOR"]]).T

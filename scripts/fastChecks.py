@@ -19,6 +19,8 @@ import os
 import sys
 from functools import partial
 
+import numpy.lib.recfunctions as rfn
+
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
@@ -83,6 +85,7 @@ def run_fast_checks(
     fastcat_path: str,
     output_prefix: str | None = None,
     search_radius_arcsec: float | None = None,
+    injection_file: str | None = None,
 ) -> int:
     # Load config
     with open(config_path, "r") as f:
@@ -111,19 +114,49 @@ def run_fast_checks(
     # Load detections and clean
     print(f"Loading detections: {detections_path}")
     cat = read_cat_data(detections_path)
+
+    cat = rfn.drop_fields(
+        cat, ["FLUX_PSF", "FLUXERR_PSF", "ERRBWIN_WORLD", "ERRTHETAWIN_J2000"]
+    )
+
+    if injection_file is not None:
+        print(f"Loading injected fake stars from: {injection_file}")
+        injected_stars = read_cat_data(injection_file)
+        cat = np.concatenate([cat, injected_stars])
+        print(f"Catalog size after adding injections: {len(cat)}")
+
+
     print(f"Detections loaded: {len(cat)}")
 
-    cleanmask = clean_cat(cat)
-    cat_idx = np.arange(len(cat))[cleanmask]
-    cat = cat[cleanmask]
+    # completeness_cat = fitsio.read(
+    #     "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.positions.fits"
+    # )
+
+    # cleanmask = clean_cat(cat, completeness_cat, 0.1)
+    cat_idx = np.arange(len(cat))  # [cleanmask]
+    # cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
 
     # Load fast catalog to check
     print(f"Loading fast-check catalog: {fastcat_path}")
-    slow_cat = [
-        fitsio.read(fastcat_path, ext="modest{i}_movers".format(i=i))
-        for i in range(1, config["n_modests"] + 1)
-    ]
+    # slow_cat = [
+    #     fitsio.read(fastcat_path, ext="modest{i}_movers".format(i=i))
+    #     for i in range(1, config["n_modests"] + 1)
+    # ]
+
+    slow_cat = []
+    for i in range(1, config["n_modests"] + 1):
+        try:
+            slow_cat.append(
+                fitsio.read(fastcat_path, ext="modest{i}_movers".format(i=i))
+            )
+        except Exception as e:
+            print(
+                f"Warning: Could not read modest{i}_movers extension from {fastcat_path}: {e}"
+            )
+            print("This may be expected if no modest movers were found for that fit.")
+            print("Continuing without this modest movers extension.")
+
     slow_cat = np.concatenate(slow_cat)
     fast_cat = fitsio.read(fastcat_path, ext="fast_movers")
     _validate_fastcat_columns(fast_cat)
@@ -206,18 +239,31 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--injection-file",
+        default=None,
+        help=(
+            "Optional path to a FITS file containing injected fake stars to add to the "
+            "detections catalog before running the fast checker. Must have same format "
+            "as the main detections catalog, with columns including at least RA, DEC, "
+            "XI, ETA, PMRA, PMDEC, PARALLAX."
+        ),
+    )
+
     args = parser.parse_args()
-    try:
+    # try:
+    if True:
         return run_fast_checks(
             args.config,
             args.catalog,
             args.fastcat,
             args.output_prefix,
             args.search_radius_arcsec,
+            args.injection_file,
         )
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    # except Exception as e:
+    #     print(f"Error: {e}")
+    #     return 1
 
 
 if __name__ == "__main__":

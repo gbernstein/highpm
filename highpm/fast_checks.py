@@ -7,6 +7,7 @@ from astropy.time import Time
 from highpm.modest import new_modest_mover
 from highpm.multithreader import multi_fit5d, multithreader
 from highpm.utils import arborist
+from highpm.friends_of_friends import find_friend, friends_of_friends
 
 
 def forester(cat):
@@ -68,7 +69,10 @@ def temp_pos(mjd, xi, eta, ra, dec, pmra, pmdec, parallax, sol, config):
 
 
 def detection_search(trees, xi, eta, ra, dec, pmra, pmdec, parallax, mjd, sol, config):
+
     indicies = []
+
+    all_ra, all_dec = [], []
 
     for temp_mjd, temp_sol in zip(mjd, sol):
 
@@ -84,17 +88,30 @@ def detection_search(trees, xi, eta, ra, dec, pmra, pmdec, parallax, mjd, sol, c
             temp_sol,
             config,
         )
+        all_ra.append(temp_ra)
+        all_dec.append(temp_dec)
 
-        temp_idx = trees[temp_mjd]["tree"].query_ball_point(
-            np.array([temp_ra, temp_dec]),
-            config["fastcheck"]["search_radius"],
-        )
+    all_idx = []
+    for ra, dec in zip(all_ra, all_dec):
+        temp_idx = []
+        for temp_mjd in mjd:
 
-        idx = trees[temp_mjd]["idx"][temp_idx]
+            mjd_idx = trees[temp_mjd]["tree"].query_ball_point(
+                np.array([ra, dec]),
+                config["fastcheck"]["search_radius"],
+            )
 
-        indicies.extend(idx)
+            temp_idx.extend(trees[temp_mjd]["idx"][mjd_idx])
 
-    return indicies
+        all_idx.extend(temp_idx)
+    all_idx = np.array(all_idx, dtype=int)
+
+    if len(all_idx) > 0:
+        indicies.extend(all_idx)
+
+    # print(len(np.unique(indicies)), "detections found for this star.")
+
+    return np.unique(indicies)
 
 
 def slow_mover_search(slow_tree, xi, eta, config):
@@ -130,11 +147,83 @@ def check_slow_detections(cat, slow_cat, fast_check_pm_detections, config):
         if len(slow_mover) > 0:
             fast_detections_mask[i] = False
 
-    print(
-        f"Filtered {np.sum(~fast_detections_mask)} detections associated with slow movers."
-    )
+    # print(
+    #     f"Filtered {np.sum(~fast_detections_mask)} detections associated with slow movers."
+    # )
 
     return np.array(fast_check_pm_detections)[fast_detections_mask]
+
+
+def check_static_detections(cat, fast_check_pm_detections, config):
+
+    close_friends = find_friend(
+        arborist(
+            3600.0 * cat["XI"][fast_check_pm_detections],
+            3600.0 * cat["ETA"][fast_check_pm_detections],
+        ),
+        config["static_check"]["linklength"],
+        cores=config["cores"],
+    )
+    close_groups = friends_of_friends(close_friends)
+
+    mjd = cat["MJD"][fast_check_pm_detections] / 365.2524
+
+    static_detections_mask = np.ones(len(fast_check_pm_detections), dtype=bool)
+
+    # import matplotlib.pyplot as plt
+    # from matplotlib.patches import Circle
+
+    # c = [plt.Circle(
+    #     (
+    #         3600 * cat["XI"][fast_check_pm_detections][i],
+    #         3600 * cat["ETA"][fast_check_pm_detections][i],
+    #     ),
+    #     config["static_check"]["linklength"]/2.,
+    #     color="red",
+    #     fill=False,
+    # ) for i in range(len(fast_check_pm_detections))]
+
+    # fig,ax = plt.subplots()
+    # for i in range(len(fast_check_pm_detections)):
+    #     ax.add_patch(c[i])
+    # plt.scatter(
+    #     3600 * cat["XI"][fast_check_pm_detections],
+    #     3600 * cat["ETA"][fast_check_pm_detections],
+    #     s=5,
+    #     c=(cat["MJD"][fast_check_pm_detections] - config["mjd_ref"]) / 365.2524,
+    #     cmap="viridis",
+    # )
+    # plt.axis("equal")
+    # plt.colorbar(label="MJD (years since reference)")
+    # plt.xlabel("XI (arcsec)")
+    # plt.ylabel("ETA (arcsec)")
+    # plt.show()
+
+    if (
+        np.sum(
+            np.array([len(group) for group in close_groups])
+            > config["static_check"]["sub_n"]
+        )
+        == 1
+    ):
+        return np.array(fast_check_pm_detections)
+
+    for group in close_groups:
+        group_mjd = np.unique(mjd[group])
+        # print(np.max(group_mjd) - np.min(group_mjd))
+        # print(len(group), len(group_mjd))
+        if len(group_mjd) <= config["static_check"]["sub_n"]:
+            continue
+        if (np.max(group_mjd) - np.min(group_mjd)) > config["static_check"]["time_sep"]:
+            # print(
+            #     f"Found a group of {len(group)} close detections with time separation"
+            #     + f" {np.max(group_mjd) - np.min(group_mjd):.2f} years. Marking as static."
+            # )
+            static_detections_mask[group] = False
+
+    # print(fast_check_pm_detections.shape, static_detections_mask.shape)
+
+    return np.array(fast_check_pm_detections)[static_detections_mask]
 
 
 def fast_checker(cat, fast_cat, slow_cat, fitter, config):
@@ -151,7 +240,10 @@ def fast_checker(cat, fast_cat, slow_cat, fitter, config):
     trees = forester(cat)
     fast_check_pm_lol = []
     print("Searching for detections in fast catalog...")
-    for star in fast_cat:
+
+    import tqdm
+
+    for star in tqdm.tqdm(fast_cat,total=len(fast_cat), desc="Fast check progress"):
         fast_check_pm_detections = detection_search(
             trees,
             star["xi"],
@@ -166,9 +258,30 @@ def fast_checker(cat, fast_cat, slow_cat, fitter, config):
             config,
         )
 
+        # print(
+        #     len(fast_check_pm_detections),
+        #     "detections found for this star before checks.",
+        # )
+
+        fast_check_pm_detections = check_static_detections(
+            cat, fast_check_pm_detections, config
+        )
+
+        # print(
+        #     len(fast_check_pm_detections),
+        #     "detections found for this star after static check.",
+        # )
+
         fast_check_pm_detections = check_slow_detections(
             cat, slow_cat, fast_check_pm_detections, config
         )
+
+        # print(
+        #     len(fast_check_pm_detections),
+        #     "detections found for this star after checks.",
+        # )
+
+        # print(60 * "-")
 
         fast_check_pm_lol.append(fast_check_pm_detections)
 
@@ -176,12 +289,15 @@ def fast_checker(cat, fast_cat, slow_cat, fitter, config):
         i for i in fast_check_pm_lol if len(i) >= config["n_detections"]
     ]
 
-    partial_new_modest_mover = partial(new_modest_mover, mode="fast")
+    partial_new_modest_mover = partial(new_modest_mover, mode="fastcheck")
 
     fast_check_pm_ls = multithreader(
         partial_new_modest_mover, fast_check_pm_lol, cat, config
     )
     fast_check_pm_ls = [i for i in fast_check_pm_ls if i is not None]
+
+    print(f"Found {len(fast_check_pm_ls)} fast-check movers")
+
     fast_check_pm_obj = []
     for i in fast_check_pm_ls:
         for j in i:
@@ -189,6 +305,10 @@ def fast_checker(cat, fast_cat, slow_cat, fitter, config):
     fast_check_pm_obj = [
         i for i in fast_check_pm_obj if len(i) >= config["n_detections"]
     ]
+
+    print(
+        f"Found {len(fast_check_pm_obj)} fast-check movers with at least {config['n_detections']} detections"
+    )
 
     fast_check_pm_arr = multi_fit5d(fitter, fast_check_pm_lol, cat, config)
 

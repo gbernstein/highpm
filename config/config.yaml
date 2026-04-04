@@ -1,6 +1,6 @@
 # Generic Configuration for PM.py
 
-n_detections: 8 # Minimum number of detections required to fit a proper motion
+n_detections: 5 # Minimum number of detections required to fit a proper motion
 
 mjd_ref: 57388.0 # Reference MJD for the data in days
 
@@ -15,26 +15,39 @@ n_modests: 3 # Number of modest proper motion iterations to perform
 modest:
   linklength: 1.5 # Maximum link length in arcseconds
   min_dt: 0.8 # Minimum time difference in years
-  eps: 2.0 # DBSCAN epsilon value
-  min_pairs: 7 # Minimum number of pairs to consider a group
-  shared_pairs: 0.8 # Maximum fraction of shared pairs to consider a group
+  eps: 5.0 # DBSCAN epsilon value
+  min_pairs: 4 # Minimum number of pairs to consider a group
+  shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
 
 pm_lim: 5000 # Maximum proper motion in mas/yr for removal
-pm_err_lim: 20 # Maximum proper motion error in mas/yr for removal
+pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal
 
 fast:
   pairlength: 60.0 # Maximum pair length in arcseconds
-  linklength: 1.0 # Maximum link length in arcseconds
-  min_pairs: 7 # Minimum number of pairs to consider a group
-  min_sep: 0.1 # Minimum separation in arcseconds
+  linklength: 5.0 # Maximum link length in arcseconds
+  min_pairs: 4 # Minimum number of pairs to consider a group
+  min_sep: 0.05 # Minimum separation in arcseconds
   max_sep: 20.0 # Maximum separation in arcseconds
   eps: 2.0 # DBSCAN epsilon value
   min_dt: 0.8 # Minimum time difference in years
-  shared_pairs: 0.8 # Maximum fraction of shared pairs to consider a group
+  shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
 
 fastcheck:
-  search_radius: 1.0 # Search radius in arcseconds]
-  slow_pm_threshold: 100 # Proper motion threshold in mas/yr to consider a source as slow
+  search_radius: 1.0 # Search radius in arcseconds
+  slow_pm_threshold: 50 # Proper motion threshold in mas/yr to consider a source as slow
+  pairlength: 60.0 # Maximum pair length in arcseconds
+  linklength: 2.0 # Maximum link length in arcseconds
+  min_pairs: 4 # Minimum number of pairs to consider a group
+  min_sep: 0.01 # Minimum separation in arcseconds
+  max_sep: 20.0 # Maximum separation in arcseconds
+  eps: 5.0 # DBSCAN epsilon value
+  min_dt: 1.6 # Minimum time difference in years
+  shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
+
+static_check:
+  linklength: 0.5 # Maximum link length in arcseconds
+  time_sep: 2. # Minimum time separation in years
+  sub_n: 3 # Number of detections to consider for static check
 
 min_overlap: 0.79
 
@@ -44,9 +57,9 @@ fitting:
   t_season: 0.25 # Minimum time separation to consider a new season in years
   chisqClip: 11.0 # Chi-squared clipping threshold
   parallax_prior: 0.15 # Parallax prior in "
-  color_prior: 1.0 # Color prior in mag
+  color_prior: 3.0 # Color prior in mag
   colorFrac: 0.9 # Required color fraction to use coadd color
-  pm_prior: 100.0 # Proper motion prior in "/yr
+  pm_prior: null # Proper motion prior in "/yr
   additional_error: False # Whether to include additional error in covariance matrix
 
 output_name: null # Name of the output file, if null, will be generated based on input data
