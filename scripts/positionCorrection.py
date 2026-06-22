@@ -79,7 +79,7 @@ if __name__ == "__main__":
         default=None,
         help=(
             "Path to DES exposures FITS table; if provided, sets the DES_EXPOSURES "
-            "environment variable used by pixmappy DESMaps."
+            "environment variable used by highpm for MJD/observatory."
         ),
     )
     parser.add_argument(

@@ -216,7 +216,7 @@ def matchGPRToCoadd(coaddData, joinedSkimGPRData, radius=0.5):
 
 
 def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
-    maps = pm.DESMaps()
+    maps = pm.DelveMaps()
 
     exposureTable = fitsio.read(os.environ["DES_EXPOSURES"], ext=1)
 
@@ -277,7 +277,7 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
             iUse = ccdnumArgsort[starts[iStart] : starts[iStart + 1]]
             ccdnum = int(matchedSkimGPRCoaddData["CCDNUM"][iUse[0]])
 
-            wcs = maps.getDESWCS(expnum, ccdnum)
+            wcs = maps.getDelveWCS(expnum, ccdnum)
 
             wcsArray[iUse] = wcs
 
