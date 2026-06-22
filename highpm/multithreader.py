@@ -41,21 +41,18 @@ def multithreader(func, lol, cat, config, fitting=False):
     if np.any([key not in config for key in config_reqs]):
         raise ValueError(f"Missing required config keys: {config_reqs}")
 
-    ls_out = []
     if fitting:
         partial_func = partial(func, cat=cat)
     else:
         partial_func = partial(func, cat=cat, config=config)
 
     with Pool(processes=config["cores"]) as pool:
-        for _ in tqdm.tqdm(
-            pool.imap_unordered(partial_func, lol, chunksize=config["chunksize"]),
-            total=len(lol),
-        ):
-            ls_out.append(_)
-            pass
-    pool.close()
-    pool.join()
+        ls_out = list(
+            tqdm.tqdm(
+                pool.imap_unordered(partial_func, lol, chunksize=config["chunksize"]),
+                total=len(lol),
+            )
+        )
     return ls_out
 
 
@@ -137,6 +134,5 @@ def multi_fit5d(fitter, detections_groups, cat, config):
 
     # Convert list to array and discard list
     clean_pm_arr = np.array(clean_pm_list, dtype=object)
-    clean_pm_list.clear()
 
     return clean_pm_arr

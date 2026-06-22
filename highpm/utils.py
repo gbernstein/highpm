@@ -64,7 +64,7 @@ def detections_for_removal(pm_arr, config):
         return np.array([])
 
     p_fits = np.vstack(pm_arr[:, 0])
-    cov = np.array([np.linalg.inv(i) for i in pm_arr[:, 1]])
+    cov = np.linalg.inv(np.stack(pm_arr[:, 1]))
 
     pmra = 1000 * p_fits[:, 2]
     pmra_err = 1000 * cov[:, 2, 2]

@@ -34,11 +34,11 @@ def gnomonic_plate2sky(xi, eta, ra0, dec0):
     arrays.
     """
 
-    xi_rad = xi * np.pi / 180.0
-    eta_rad = eta * np.pi / 180.0
+    xi_rad = np.radians(xi)
+    eta_rad = np.radians(eta)
 
-    ra0_rad = ra0 * np.pi / 180.0
-    dec0_rad = dec0 * np.pi / 180.0
+    ra0_rad = np.radians(ra0)
+    dec0_rad = np.radians(dec0)
 
     rho = np.hypot(xi_rad, eta_rad)
     c = np.arctan(rho)
@@ -53,8 +53,8 @@ def gnomonic_plate2sky(xi, eta, ra0, dec0):
         np.cos(c) * np.sin(dec0_rad) + eta_rad * np.sin(c) * np.cos(dec0_rad) / rho
     )
 
-    ra = ra_rad * 180.0 / np.pi
-    dec = dec_rad * 180.0 / np.pi
+    ra = np.degrees(ra_rad)
+    dec = np.degrees(dec_rad)
 
     return ra, dec
 

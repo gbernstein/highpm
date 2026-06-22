@@ -7,6 +7,10 @@ spatial data analysis or social network analysis. The main functions include
 indirect friendships.
 """
 
+import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+
 
 def find_friend(data, length, cores=None):
     """Finds friends within a specified distance using either a BallTree or
@@ -63,21 +67,22 @@ def friends_of_friends(list_friends):
     [[0, 1, 2, 3]]
     """
 
-    todo = set(range(len(list_friends)))
-    result = []
-    while len(todo) > 0:
-        i = todo.pop()
-        new_set = set([i])
-        fresh_friends = set(list_friends[i])
-        fresh_friends.remove(i)
-        while len(fresh_friends) > 0:
-            next_friend = fresh_friends.pop()
-            new_set.add(next_friend)
-            if next_friend in todo:
-                fof = set(list_friends[next_friend])
-                todo.remove(next_friend)
-                fof = fof - new_set
-                fresh_friends = fresh_friends | fof
-        result.append(list(new_set))
+    n = len(list_friends)
+    rows = np.repeat(np.arange(n), [len(f) for f in list_friends])
+    cols = np.concatenate(list_friends).astype(int) if n else np.empty(0, int)
+    graph = coo_matrix((np.ones(cols.size), (rows, cols)), shape=(n, n))
 
-    return result
+    _, labels = connected_components(graph, directed=False)
+    order = np.argsort(labels, kind="stable")
+    groups = np.split(order, np.flatnonzero(np.diff(labels[order])) + 1)
+    return [g.tolist() for g in groups]
+
+
+if __name__ == "__main__":
+    assert friends_of_friends([[1, 2], [0, 2], [0, 1, 3], [2]]) == [[0, 1, 2, 3]]
+    assert sorted(friends_of_friends([[0, 1], [0, 1], [2], [3, 4], [3, 4]])) == [
+        [0, 1],
+        [2],
+        [3, 4],
+    ]
+    print("ok")
