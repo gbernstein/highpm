@@ -179,16 +179,16 @@ def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
 
         zp_cat = fitsio.read("/home/vwetzell/gitrepos/highpm/data/zeropoint.fits")
 
-        mags = flux_to_mag(
-            catname["EXPNUM"], catname["CCDNUM"], catname["FLUX_AUTO"], zp_cat
-        )
+        # mags = flux_to_mag(
+        #     catname["EXPNUM"], catname["CCDNUM"], catname["FLUX_AUTO"], zp_cat
+        # )
 
-        cleanmask &= completeness_limit(
-            catname["EXPNUM"],
-            mags,
-            completeness_cat,
-            completeness_threshold,
-        )
+        # cleanmask &= completeness_limit(
+        #     catname["EXPNUM"],
+        #     mags,
+        #     completeness_cat,
+        #     completeness_threshold,
+        # )
 
     except KeyError:
         print("No Spread Model cleaning...")

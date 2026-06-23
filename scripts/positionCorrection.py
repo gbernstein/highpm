@@ -168,8 +168,7 @@ if __name__ == "__main__":
         source = "auto-discovered"
 
     if args.index is not None and args.exposures_npy is not None:
-        print(1*args.index, 1*(1+args.index))
-        exposures = np.array([exposures[1*args.index:(1*(1+args.index))]], dtype=int)
+        exposures = exposures[args.index : args.index + 1]
 
     print(f"Skim Path: {args.skims_path}")
     print(f"GPR Path: {args.gpr_path}")
@@ -177,13 +176,13 @@ if __name__ == "__main__":
     print(f"Output Path: {args.output_path}")
     print(f"Number of processes: {args.processes}")
     print(
-        f"Processing exposures ({source}): {exposures[0][:10]}... (total {len(exposures[0])})"
+        f"Processing exposures ({source}): {exposures[:10]}... (total {len(exposures)})"
     )
 
     # Build argument tuples and use starmap to avoid pickling partials defined in __main__
     task_args = [
         (expnum, args.skims_path, args.gpr_path, args.coadd_path, args.output_path)
-        for expnum in exposures[0]
+        for expnum in exposures
     ]
 
     with Pool(processes=args.processes) as pool:

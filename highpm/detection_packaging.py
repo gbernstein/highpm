@@ -49,27 +49,22 @@ def clean_healpix_detections(detections, ipix, nside=32, subside=16):
     This function removes detections that are more than 'overlap' degrees away
     from the edge of the healpixel.
     """
-    npix_sub = hp.nside2npix(nside * subside)
-    theta_sub, phi_sub = hp.pix2ang(nside * subside, np.arange(npix_sub))
-    parent = hp.ang2pix(nside, theta_sub, phi_sub)
-    ipix_sub = np.arange(npix_sub)[parent == ipix]
+    fine = nside * subside
+    # Children of ipix are contiguous in NESTED ordering: parent*ratio^2 + offset.
+    ratio2 = subside * subside
+    parent_nest = int(hp.ring2nest(nside, ipix))
+    ipix_sub = hp.nest2ring(fine, parent_nest * ratio2 + np.arange(ratio2, dtype=np.int64))
 
-    neighbors = set()
-    for pix in ipix_sub:
-        temp_neighbors = hp.get_all_neighbours(nside * subside, pix)
-        neighbors.update(temp_neighbors[temp_neighbors >= 0])
-
-    good_subpix = set(parent) | neighbors
+    neigh = hp.get_all_neighbours(fine, ipix_sub)  # (8, len(ipix_sub)), -1 padded
+    good_subpix = np.unique(np.concatenate([ipix_sub, neigh[neigh >= 0].ravel()]))
 
     detections_ipix = hp.ang2pix(
-        nside * subside,
+        fine,
         np.radians(90.0 - detections["NEW_DEC"]),
         np.radians(detections["NEW_RA"]),
     )
 
-    good_detections = np.isin(detections_ipix, list(good_subpix))
-
-    return detections[good_detections]
+    return detections[np.isin(detections_ipix, good_subpix)]
 
 
 def get_healpix_center(ipix, nside=32):

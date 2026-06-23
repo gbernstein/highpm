@@ -4,6 +4,7 @@ import re
 from typing import List
 
 import fitsio
+import h5py
 import healpy as hp
 import numpy as np
 import numpy.lib.recfunctions as rfn
@@ -218,7 +219,9 @@ def matchGPRToCoadd(coaddData, joinedSkimGPRData, radius=0.5):
 def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
     maps = pm.DelveMaps()
 
-    exposureTable = fitsio.read(os.environ["DES_EXPOSURES"], ext=1)
+    # delveExposures.hdf5 is an astropy Table dumped to a single compound dataset.
+    with h5py.File(os.environ["DES_EXPOSURES"], "r") as f:
+        exposureTable = f["__astropy_table__"][:]
 
     cra, sra = np.cos(ra0 * np.pi / 180.0), np.sin(ra0 * np.pi / 180.0)
     cdec, sdec = np.cos(dec0 * np.pi / 180.0), np.sin(dec0 * np.pi / 180.0)
@@ -250,8 +253,6 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         ],
     )
 
-    wcsArray = np.empty(len(matchedSkimGPRCoaddData), dtype=object)
-
     iExp = np.where(exposureTable["expnum"] == expnum)[0]
 
     if len(iExp) == 0:
@@ -261,8 +262,8 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
 
     else:
         iExp = iExp[0]
-        mjd = exposureTable["mjd"][iExp]
-        observatory = exposureTable["observatory"][iExp]
+        mjd = exposureTable["mjdmid"][iExp]
+        observatory = exposureTable["obsicrs"][iExp]
 
         tmpPar = np.dot(R_bl, observatory)
         parX = -tmpPar[0]
@@ -273,55 +274,35 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
             - matchedSkimGPRCoaddData["MAG_AUTO_I"]
         )
 
+        new_ra = matchedSkimGPRCoaddData["NEW_RA"]
+        new_dec = matchedSkimGPRCoaddData["NEW_DEC"]
+
+        n = len(matchedSkimGPRCoaddData)
+        xwin = np.empty(n, dtype="f8")
+        ywin = np.empty(n, dtype="f8")
+        bestRA = np.empty(n, dtype="f8")
+        bestDEC = np.empty(n, dtype="f8")
+        shiftRA = np.empty(n, dtype="f8")
+        shiftDEC = np.empty(n, dtype="f8")
+
+        # One WCS per CCD: transform each CCD's whole row group at once instead
+        # of calling toPix/toSky per detection.
         for iStart in range(len(starts) - 1):
             iUse = ccdnumArgsort[starts[iStart] : starts[iStart + 1]]
             ccdnum = int(matchedSkimGPRCoaddData["CCDNUM"][iUse[0]])
 
             wcs = maps.getDelveWCS(expnum, ccdnum)
 
-            wcsArray[iUse] = wcs
+            x, y = wcs.toPix(new_ra[iUse], new_dec[iUse], c=defaultColor)
+            bra, bdec = wcs.toSky(x, y, c=giColor[iUse])
+            sra, sdec = wcs.toSky(x, y, c=defaultColor - 1.0)
 
-        xywin = np.fromiter(
-            (
-                wcs.toPix(ra, dec, c=defaultColor)
-                for wcs, ra, dec in zip(
-                    wcsArray,
-                    matchedSkimGPRCoaddData["NEW_RA"],
-                    matchedSkimGPRCoaddData["NEW_DEC"],
-                )
-            ),
-            dtype=[("xwin", "f8"), ("ywin", "f8")],
-        )
-
-        xwin = xywin["xwin"]
-        ywin = xywin["ywin"]
-
-        bestRADEC = np.fromiter(
-            (
-                wcs.toSky(x, y, c=c)
-                for wcs, x, y, c in zip(
-                    wcsArray,
-                    xwin,
-                    ywin,
-                    giColor,
-                )
-            ),
-            dtype=[("bestRA", "f8"), ("bestDEC", "f8")],
-        )
-
-        bestRA = bestRADEC["bestRA"]
-        bestDEC = bestRADEC["bestDEC"]
-
-        shiftRADEC = np.fromiter(
-            (
-                wcs.toSky(x, y, c=defaultColor - 1.0)
-                for wcs, x, y in zip(wcsArray, xwin, ywin)
-            ),
-            dtype=[("shiftRA", "f8"), ("shiftDEC", "f8")],
-        )
-
-        shiftRA = shiftRADEC["shiftRA"]
-        shiftDEC = shiftRADEC["shiftDEC"]
+            xwin[iUse] = x
+            ywin[iUse] = y
+            bestRA[iUse] = bra
+            bestDEC[iUse] = bdec
+            shiftRA[iUse] = sra
+            shiftDEC[iUse] = sdec
 
         dRAdColor = matchedSkimGPRCoaddData["NEW_RA"] - shiftRA
         dDECdColor = matchedSkimGPRCoaddData["NEW_DEC"] - shiftDEC
