@@ -16,7 +16,7 @@ source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 python /home2/vwetzell/gitrepos/highpm/scripts/detectionPacking.py \
     --index ${SLURM_ARRAY_TASK_ID} \
     --healpix-npy /home2/vwetzell/ProperMotion/healpixel.npy \
-    --exposures-file /home2/vwetzell/gitrepos/pixmappy/data/y6a1.exposureinfo.fits \
+    --exposures-file /home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5 \
     --detection-path /home2/vwetzell/ProperMotion/PositionCorrectedExposureCatalog/ \
     --output-path /home2/vwetzell/ProperMotion/HealpixDetectionCatalog/ \
     --overwrite

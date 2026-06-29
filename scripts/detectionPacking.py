@@ -29,7 +29,46 @@ Command-line wrapper that orchestrates argument parsing and calls the detection
 packaging functions in highpm.detection_packaging.
 """
 
+
+def _radec_from_table(tab):
+    """(expnum, ra_deg, dec_deg) from an exposure table, case-insensitively.
+
+    Old y6a1 FITS stores ra/dec columns; pixmappy v2 delveExposures.hdf5 stores
+    the pointing as 'pole' = [ra, dec] (deg). astropy reads both file formats.
+    """
+    col = {c.lower(): c for c in tab.colnames}
+    expnum = np.array(tab[col["expnum"]], dtype="i8")
+    if "ra" in col and "dec" in col:
+        ra = np.array(tab[col["ra"]], dtype="f8")
+        dec = np.array(tab[col["dec"]], dtype="f8")
+    else:
+        pole = np.array(tab[col["pole"]], dtype="f8")  # (N, 2) = [ra, dec] deg
+        ra, dec = pole[:, 0], pole[:, 1]
+    return expnum, ra, dec
+
+
+def _load_exposures(path):
+    from astropy.table import Table
+
+    return _radec_from_table(Table.read(path))
+
+
+def _self_test():
+    from astropy.table import Table
+
+    fits_like = Table({"expnum": [1, 2], "ra": [10.0, 20.0], "dec": [-30.0, -40.0]})
+    hdf5_like = Table({"expnum": [1, 2], "pole": [[10.0, -30.0], [20.0, -40.0]]})
+    for t in (fits_like, hdf5_like):
+        e, r, d = _radec_from_table(t)
+        assert list(e) == [1, 2] and list(r) == [10.0, 20.0] and list(d) == [-30.0, -40.0]
+    print("self-test ok: ra/dec read from both ra/dec and pole schemas")
+
+
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        _self_test()
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(
         description=(
             "Concatenate detection files, clean them, and write out a single "
@@ -41,8 +80,8 @@ if __name__ == "__main__":
         "--exposures-file",
         required=True,
         help=(
-            "FITS file containing exposure metadata with columns 'EXPNUM', 'RA', "
-            "'DEC'."
+            "Exposure metadata table (FITS or HDF5). Needs 'expnum' plus either "
+            "'ra'/'dec' columns or a 'pole' = [ra, dec] column (pixmappy v2)."
         ),
     )
 
@@ -109,10 +148,7 @@ if __name__ == "__main__":
     else:
         healpix = args.healpix
 
-    exposure_data = fitsio.read(args.exposures_file)
-    expnum = np.array(exposure_data["expnum"], dtype="i8")
-    expra = np.array(exposure_data["ra"], dtype="f8")
-    expdec = np.array(exposure_data["dec"], dtype="f8")
+    expnum, expra, expdec = _load_exposures(args.exposures_file)
 
     exposures = get_exposures_near_healpix(
         healpix, expra, expdec, expnum, nside=args.nside
