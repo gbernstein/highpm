@@ -175,10 +175,6 @@ def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
 
         # print(np.sum(cleanmask), "detections after Spread Model cleaning.")
 
-        import fitsio
-
-        zp_cat = fitsio.read("/home/vwetzell/gitrepos/highpm/data/zeropoint.fits")
-
         # mags = flux_to_mag(
         #     catname["EXPNUM"], catname["CCDNUM"], catname["FLUX_AUTO"], zp_cat
         # )

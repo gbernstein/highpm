@@ -11,8 +11,6 @@ from functools import partial
 from glob import glob
 import numpy.lib.recfunctions as rfn
 
-import fitsio
-
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
@@ -89,11 +87,7 @@ def run_pm(
 
     print(f"Detections loaded: {len(cat)}")
 
-    completeness_cat = fitsio.read(
-        "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.positions.fits"
-    )
-
-    cleanmask = clean_cat(cat, completeness_cat, 0.1)
+    cleanmask = clean_cat(cat)
     cat_idx = np.arange(len(cat))[cleanmask]
     cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
