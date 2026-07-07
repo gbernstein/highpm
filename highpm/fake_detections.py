@@ -17,6 +17,10 @@ _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# Augmented completeness catalog: measured (m50, k, c) plus t_eff-estimated rows
+# for exposures with no measurement. Built by scripts/build_completeness_table.py.
+COMPLETENESS_CAT_PATH = os.path.join(_REPO_ROOT, "data", "y6a1c.exposures.completeness.fits")
+
 
 from astropy.coordinates import solar_system_ephemeris, EarthLocation, get_body
 from astropy.time import Time
@@ -114,7 +118,7 @@ def detection_completeness(mags, expnum, band):
     print("Shape expnum:", expnum.shape)
 
     full_completeness_cat = fitsio.read(
-        "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.positions.fits",
+        COMPLETENESS_CAT_PATH,
         ext=1,
         columns=["expnum", "m50", "k", "c"],
     )

@@ -129,7 +129,7 @@ def run_fast_checks(
     print(f"Detections loaded: {len(cat)}")
 
     # completeness_cat = fitsio.read(
-    #     "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.positions.fits"
+    #     "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.completeness.fits"
     # )
 
     # cleanmask = clean_cat(cat, completeness_cat, 0.1)
