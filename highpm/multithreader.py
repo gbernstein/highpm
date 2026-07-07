@@ -7,6 +7,21 @@ import tqdm
 # Multithreading Functions
 # =============================================================================
 
+# Worker context set once per pool via the fork-inherited initializer, so the
+# (large) catalog is never pickled per task. ponytail: fork-only; would need a
+# shared-memory array if a spawn start method is ever used.
+_WCTX = {}
+
+
+def _init_worker(func, cat, config, fitting):
+    _WCTX.update(func=func, cat=cat, config=config, fitting=fitting)
+
+
+def _apply(item):
+    if _WCTX["fitting"]:
+        return _WCTX["func"](item, cat=_WCTX["cat"])
+    return _WCTX["func"](item, cat=_WCTX["cat"], config=_WCTX["config"])
+
 
 def multithreader(func, lol, cat, config, fitting=False):
     """Executes a function in parallel across multiple processes using a pool.
@@ -41,15 +56,14 @@ def multithreader(func, lol, cat, config, fitting=False):
     if np.any([key not in config for key in config_reqs]):
         raise ValueError(f"Missing required config keys: {config_reqs}")
 
-    if fitting:
-        partial_func = partial(func, cat=cat)
-    else:
-        partial_func = partial(func, cat=cat, config=config)
-
-    with Pool(processes=config["cores"]) as pool:
+    with Pool(
+        processes=config["cores"],
+        initializer=_init_worker,
+        initargs=(func, cat, config, fitting),
+    ) as pool:
         ls_out = list(
             tqdm.tqdm(
-                pool.imap_unordered(partial_func, lol, chunksize=config["chunksize"]),
+                pool.imap_unordered(_apply, lol, chunksize=config["chunksize"]),
                 total=len(lol),
             )
         )

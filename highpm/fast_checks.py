@@ -11,23 +11,17 @@ from highpm.friends_of_friends import find_friend, friends_of_friends
 
 
 def forester(cat):
-
+    # One KD-tree of detections per epoch, so a projected position is only ever
+    # matched against detections observed at that same MJD.
     mjd = np.unique(cat["MJD"])
-
-    trees = {}
-
     orig_idx = np.arange(len(cat), dtype=int)
-
-    for temp_mjd in mjd:
-        temp_cat = cat[cat["MJD"] == temp_mjd]
-
-        temp_idx = orig_idx[cat["MJD"] == temp_mjd]
-
-        x = np.array(3600.0 * temp_cat["XI"])
-        y = np.array(3600.0 * temp_cat["ETA"])
-
-        trees[temp_mjd] = {"tree": arborist(x, y), "idx": temp_idx}
-
+    trees = {}
+    for m in mjd:
+        mask = cat["MJD"] == m
+        trees[m] = {
+            "tree": arborist(3600.0 * cat["XI"][mask], 3600.0 * cat["ETA"][mask]),
+            "idx": orig_idx[mask],
+        }
     return trees
 
 
@@ -50,108 +44,44 @@ def F_dec(ra_star, R_earth, ra_sun, dec_ecliptic, dec_star):
     return F_dec
 
 
-def temp_pos(mjd, xi, eta, ra, dec, pmra, pmdec, parallax, sol, config):
-    # f_ra = F_ra(ra, sol.distance, np.deg2rad(sol.ra), np.deg2rad(sol.dec)).value
-    # f_dec = F_dec(ra, sol.distance, np.deg2rad(sol.ra), np.deg2rad(sol.dec), dec).value
-
-    temp_xi = (
-        3600.0 * xi
-        + pmra / 1000.0 * (mjd - config["mjd_ref"]) / 365.2524
-        # + 3600.0 * f_ra * parallax
-    )
-    temp_eta = (
-        3600.0 * eta
-        + pmdec / 1000.0 * (mjd - config["mjd_ref"]) / 365.2524
-        # + 3600.0 * f_dec * parallax
-    )
-
-    return temp_xi, temp_eta
-
-
 def detection_search(trees, xi, eta, ra, dec, pmra, pmdec, parallax, mjd, sol, config):
+    # Project the star to each epoch (parallax/solar terms disabled, matching the
+    # old temp_pos) and collect ALL detections observed at that same epoch within
+    # the search radius. Restricting to the projection's own MJD avoids spurious
+    # cross-epoch matches for high-PM stars whose track sweeps across other stars'
+    # detections. This does E tree queries per star instead of the old E**2.
+    r = config["fastcheck"]["search_radius"]
+    dt = (mjd - config["mjd_ref"]) / 365.2524
+    temp_xi = 3600.0 * xi + pmra / 1000.0 * dt
+    temp_eta = 3600.0 * eta + pmdec / 1000.0 * dt
 
-    indicies = []
-
-    all_ra, all_dec = [], []
-
-    for temp_mjd, temp_sol in zip(mjd, sol):
-
-        temp_ra, temp_dec = temp_pos(
-            temp_mjd,
-            xi,
-            eta,
-            ra,
-            dec,
-            pmra,
-            pmdec,
-            parallax,
-            temp_sol,
-            config,
-        )
-        all_ra.append(temp_ra)
-        all_dec.append(temp_dec)
-
-    all_idx = []
-    for ra, dec in zip(all_ra, all_dec):
-        temp_idx = []
-        for temp_mjd in mjd:
-
-            mjd_idx = trees[temp_mjd]["tree"].query_ball_point(
-                np.array([ra, dec]),
-                config["fastcheck"]["search_radius"],
-            )
-
-            temp_idx.extend(trees[temp_mjd]["idx"][mjd_idx])
-
-        all_idx.extend(temp_idx)
-    all_idx = np.array(all_idx, dtype=int)
-
-    if len(all_idx) > 0:
-        indicies.extend(all_idx)
-
-    # print(len(np.unique(indicies)), "detections found for this star.")
-
-    return np.unique(indicies)
+    matched = []
+    for m, px, py in zip(mjd, temp_xi, temp_eta):
+        idx = trees[m]["tree"].query_ball_point([px, py], r)
+        if idx:
+            matched.append(trees[m]["idx"][idx])
+    if not matched:
+        return np.array([], dtype=int)
+    return np.unique(np.concatenate(matched))
 
 
-def slow_mover_search(slow_tree, xi, eta, config):
-
-    idx = slow_tree.query_ball_point(
-        np.array([xi, eta]),
-        # 10,
-        config["fastcheck"]["search_radius"],
-    )
-
-    return idx
+def build_slow_tree(slow_cat, config):
+    """KD-tree of slow movers, built once per run (not per star)."""
+    slow_sel = slow_cat[slow_cat["pm"] < config["fastcheck"]["slow_pm_threshold"]]
+    if len(slow_sel) == 0:
+        return None
+    return arborist(3600.0 * slow_sel["xi"], 3600.0 * slow_sel["eta"])
 
 
-def check_slow_detections(cat, slow_cat, fast_check_pm_detections, config):
-    """Returns indicies of fast_check_pm_detections that are associated with slow movers."""
-    slow_cat = slow_cat[slow_cat["pm"] < config["fastcheck"]["slow_pm_threshold"]]
-
-    slow_tree = arborist(3600.0 * slow_cat["xi"], 3600.0 * slow_cat["eta"])
-
-    fast_detections_mask = np.ones(len(fast_check_pm_detections), dtype=bool)
-
-    for i, detection in enumerate(fast_check_pm_detections):
-        xi = 3600.0 * cat[detection]["XI"]
-        eta = 3600.0 * cat[detection]["ETA"]
-
-        slow_mover = slow_mover_search(
-            slow_tree,
-            xi,
-            eta,
-            config,
-        )
-
-        if len(slow_mover) > 0:
-            fast_detections_mask[i] = False
-
-    # print(
-    #     f"Filtered {np.sum(~fast_detections_mask)} detections associated with slow movers."
-    # )
-
-    return np.array(fast_check_pm_detections)[fast_detections_mask]
+def check_slow_detections(cat, slow_tree, fast_check_pm_detections, config):
+    """Drops detections that sit within the search radius of a slow mover."""
+    dets = np.asarray(fast_check_pm_detections)
+    if slow_tree is None or len(dets) == 0:
+        return dets
+    pts = np.column_stack([3600.0 * cat["XI"][dets], 3600.0 * cat["ETA"][dets]])
+    neighbors = slow_tree.query_ball_point(pts, config["fastcheck"]["search_radius"])
+    keep = np.array([len(nb) == 0 for nb in neighbors], dtype=bool)
+    return dets[keep]
 
 
 def check_static_detections(cat, fast_check_pm_detections, config):
@@ -162,7 +92,7 @@ def check_static_detections(cat, fast_check_pm_detections, config):
             3600.0 * cat["ETA"][fast_check_pm_detections],
         ),
         config["static_check"]["linklength"],
-        cores=config["cores"],
+        cores=None,  # per-star groups are tiny; threading them just adds overhead
     )
     close_groups = friends_of_friends(close_friends)
 
@@ -235,9 +165,10 @@ def fast_checker(cat, fast_cat, slow_cat, fitter, config):
     with solar_system_ephemeris.set("builtin"):
         sol = get_body("sun", Time(mjd, format="mjd"), loc)
 
-    print("Building trees for detections...")
+    print("Building per-epoch trees for detections...")
 
     trees = forester(cat)
+    slow_tree = build_slow_tree(slow_cat, config)
     fast_check_pm_lol = []
     print("Searching for detections in fast catalog...")
 
@@ -273,7 +204,7 @@ def fast_checker(cat, fast_cat, slow_cat, fitter, config):
         # )
 
         fast_check_pm_detections = check_slow_detections(
-            cat, slow_cat, fast_check_pm_detections, config
+            cat, slow_tree, fast_check_pm_detections, config
         )
 
         # print(

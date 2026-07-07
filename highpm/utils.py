@@ -111,14 +111,33 @@ def filter_list(L):
     [[1, 2, 3], [1, 2]]
     """
 
-    sets = {frozenset(e) for e in L}
+    # Keep only maximal sets (drop any that is a proper subset of another).
+    # Process largest-first and test each candidate only against already-kept
+    # sets via an inverted index on its rarest element -- the old
+    # `any(e < s for s in sets)` was O(n^2) over all pairs.
+    sets = sorted({frozenset(e) for e in L}, key=len, reverse=True)
+    kept = []
+    postings = {}  # element -> indices of kept sets containing it
     us = []
     for e in sets:
-        if any(e < s for s in sets):
-            continue
+        if e:
+            rarest = min(e, key=lambda x: len(postings.get(x, ())))
+            sub = any(e < kept[k] for k in postings.get(rarest, ()))
         else:
-            us.append(list(e))
+            sub = bool(kept)  # empty set is a proper subset of any non-empty set
+        if sub:
+            continue
+        k = len(kept)
+        kept.append(e)
+        for x in e:
+            postings.setdefault(x, []).append(k)
+        us.append(list(e))
     return us
+
+
+def _filter_list_ref(L):
+    sets = {frozenset(e) for e in L}
+    return [list(e) for e in sets if not any(e < s for s in sets)]
 
 
 def new_posvel(pairs, x, y, t, cov_xy, config):
@@ -201,3 +220,21 @@ def new_posvel(pairs, x, y, t, cov_xy, config):
     posvel = np.array([avg_x, avg_y, vx, vy]).T
 
     return posvel, cov, np.abs(dt), good_pairs
+
+
+if __name__ == "__main__":
+    # filter_list must match the brute-force reference (order-independent).
+    import random
+
+    def _canon(ll):
+        return sorted(tuple(sorted(s)) for s in ll)
+
+    ex = [[1, 2], [1], [2], [1, 2, 3]]
+    assert _canon(filter_list(ex)) == _canon(_filter_list_ref(ex)) == _canon([[1, 2, 3]])
+    for _ in range(500):
+        L = [
+            [random.randint(0, 8) for _ in range(random.randint(0, 5))]
+            for _ in range(random.randint(0, 12))
+        ]
+        assert _canon(filter_list(L)) == _canon(_filter_list_ref(L)), L
+    print("filter_list self-check OK")

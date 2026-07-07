@@ -31,10 +31,26 @@ import fitsio
 import numpy as np
 import yaml
 
-from highpm.cat_reader import clean_cat, read_cat_data
 from highpm.fast_checks import fast_checker
 from highpm.fits_writer import output_fits
 from highpm.pmfit import fit5d
+
+# Only the columns the fast checker + fitter actually touch (fast_checks,
+# modest.new_modest_mover, pmfit.fit5d/err2cov). Reading just these avoids
+# loading/copying the full ~1 GB detection catalog.
+FASTCHECK_COLUMNS = [
+    "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
+    "ERRAWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
+    "MAG_AUTO_G", "MAG_AUTO_R", "MAG_AUTO_I", "MAG_AUTO_Z",
+    "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
+]
+
+
+def _read_fastcheck_cat(path):
+    # Force column order (fitsio returns file order) and pack so the detections
+    # and injection arrays share an identical dtype for np.concatenate.
+    arr = fitsio.read(path, columns=FASTCHECK_COLUMNS, ext=1)
+    return rfn.repack_fields(arr[FASTCHECK_COLUMNS])
 
 
 def _validate_config(config: dict):
@@ -91,15 +107,14 @@ def run_fast_checks(
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    # Optional override for search radius (input in arcsec; internal is degrees)
+    # Search radius is in arcsec throughout (trees/queries use 3600*XI coords).
     if "fastcheck" not in config:
         config["fastcheck"] = {}
     if search_radius_arcsec is not None:
-        config["fastcheck"]["search_radius"] = float(search_radius_arcsec) / 3600.0
+        config["fastcheck"]["search_radius"] = float(search_radius_arcsec)
     # Default if still missing
     if "search_radius" not in config["fastcheck"]:
-        # 1.0 arcsec default in degrees
-        config["fastcheck"]["search_radius"] = 1.0 / 3600.0
+        config["fastcheck"]["search_radius"] = 1.0  # arcsec
 
     _validate_config(config)
 
@@ -111,17 +126,13 @@ def run_fast_checks(
         config["ra0"] = cat_header["ra0"]
         config["dec0"] = cat_header["dec0"]
 
-    # Load detections and clean
+    # Load detections (only the columns the checker/fitter need).
     print(f"Loading detections: {detections_path}")
-    cat = read_cat_data(detections_path)
-
-    cat = rfn.drop_fields(
-        cat, ["FLUX_PSF", "FLUXERR_PSF", "ERRBWIN_WORLD", "ERRTHETAWIN_J2000"]
-    )
+    cat = _read_fastcheck_cat(detections_path)
 
     if injection_file is not None:
         print(f"Loading injected fake stars from: {injection_file}")
-        injected_stars = read_cat_data(injection_file)
+        injected_stars = _read_fastcheck_cat(injection_file)
         cat = np.concatenate([cat, injected_stars])
         print(f"Catalog size after adding injections: {len(cat)}")
 

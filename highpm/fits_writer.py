@@ -233,24 +233,24 @@ def insert_detections(pm_arr, detections_idx, file, mtype):
         ("clipped", "?"),
     ]
 
-    idx = range(len(pm_arr))
     members = pm_arr[:, 6]
     clipped = pm_arr[:, 7]
 
-    detection_tbl_list = []
+    # Build the whole detection table in one shot instead of a structured
+    # np.array() per mover (was ~1 call/mover, the dominant serial cost).
+    n_mem = np.fromiter((len(m) for m in members), int, len(pm_arr))
+    n_clip = np.fromiter((len(c) for c in clipped), int, len(pm_arr))
+    counts = n_mem + n_clip
+    # Per mover, detections are ordered [members, clipped] (members flagged False).
+    detections = np.concatenate(
+        [np.hstack((members[i], clipped[i])) for i in range(len(pm_arr))]
+    ).astype(np.int64)
+    within = np.arange(counts.sum()) - np.repeat(counts.cumsum() - counts, counts)
 
-    for i in idx:
-        clipbool = len(members[i]) * [False] + len(clipped[i]) * [True]
-        detections = np.hstack((members[i], clipped[i]))
-        temp_detections_idx = detections_idx[detections]
-
-        temp_data = np.array(
-            list(zip([i] * len(detections), temp_detections_idx, clipbool)),
-            dtype=detection_column_dtypes,
-        )
-        detection_tbl_list.append(temp_data)
-
-    detection_tbl = np.concatenate(detection_tbl_list, axis=0)
+    detection_tbl = np.empty(counts.sum(), dtype=detection_column_dtypes)
+    detection_tbl["idx"] = np.repeat(np.arange(len(pm_arr)), counts)
+    detection_tbl["detections"] = detections_idx[detections]
+    detection_tbl["clipped"] = within >= np.repeat(n_mem, counts)
 
     extnum = None
     if mtype + "_detections" in [file[i].get_extname() for i in range(len(file))]:

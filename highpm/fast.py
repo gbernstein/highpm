@@ -19,10 +19,9 @@ def cleanOverlapping(partition, fast_candidates, config):
     ]
     for i in range(len(partition_candidates)):
         for j in range(i, len(partition_candidates)):
-            min_len_id = np.argmin(
-                [len(partition_candidates[i]), len(partition_candidates[j])]
-            )
-            min_len = len(partition_candidates[min_len_id])
+            # np.argmin on a 2-element list, ~10M times, was pure overhead.
+            min_len_id = 0 if len(partition_candidates[i]) <= len(partition_candidates[j]) else 1
+            min_len = len(partition_candidates[[i, j][min_len_id]])
             overlap = len(partition_candidates[i] & partition_candidates[j]) / min_len
             if overlap > config["min_overlap"]:
                 partition_candidates[[i, j][min_len_id]] = (

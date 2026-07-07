@@ -17,15 +17,35 @@ _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+import fitsio
 import numpy as np
 import yaml
 
-from highpm.cat_reader import clean_cat, read_cat_data
+from highpm.cat_reader import clean_cat
 from highpm.fast import fast_movers
 from highpm.fits_writer import output_fits
 from highpm.modest import new_modest_fitter
 from highpm.pmfit import fit5d
 from highpm.utils import detections_for_removal
+
+# Only the columns clean_cat + the modest/fast fitters (pmfit.fit5d/err2cov)
+# actually touch. Reading just these avoids loading/copying the full ~1 GB
+# detection catalog. FLAGS/IMAFLAGS_ISO are the extras clean_cat needs on top of
+# the fit columns.
+PM_COLUMNS = [
+    "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
+    "ERRAWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
+    "MAG_AUTO_G", "MAG_AUTO_R", "MAG_AUTO_I", "MAG_AUTO_Z",
+    "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
+    "FLAGS", "IMAFLAGS_ISO",
+]
+
+
+def _read_pm_cat(path):
+    # Force column order (fitsio returns file order) and pack so the detections
+    # and injection arrays share an identical dtype for np.concatenate.
+    arr = fitsio.read(path, columns=PM_COLUMNS, ext=1)
+    return rfn.repack_fields(arr[PM_COLUMNS])
 
 
 def _validate_config(config: dict):
@@ -73,15 +93,11 @@ def run_pm(
         config["dec0"] = cat_header["dec0"]
 
     print(f"Loading catalog: {catname}")
-    cat = read_cat_data(catname)
-
-    cat = rfn.drop_fields(
-        cat, ["FLUX_PSF", "FLUXERR_PSF", "ERRBWIN_WORLD", "ERRTHETAWIN_J2000"]
-    )
+    cat = _read_pm_cat(catname)
 
     if injection_file is not None:
         print(f"Loading injected fake stars from: {injection_file}")
-        injected_stars = read_cat_data(injection_file)
+        injected_stars = _read_pm_cat(injection_file)
         cat = np.concatenate([cat, injected_stars])
         print(f"Catalog size after adding injections: {len(cat)}")
 
@@ -229,6 +245,12 @@ def main():
         healpix = healpixToDo[args.index]
         detection_cats = glob(args.detections)
         catalog = select_hp(detection_cats, healpix)
+        if catalog is None:
+            print(
+                f"No cleaned_detections_hp{int(healpix):05d}.fits among "
+                f"{len(detection_cats)} files matching {args.detections!r}. Nothing to do."
+            )
+            return 0
         output_name = args.output_name + f"PM_hp{healpix:05d}.fits"
         injection_file = args.injection_file
     else:
