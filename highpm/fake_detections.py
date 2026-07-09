@@ -146,7 +146,7 @@ def detection_completeness(mags, expnum, band):
 def fov_mask(ra, dec, expnum):
 
     full_corners_cat = fitsio.read(
-        "/home/vwetzell/gitrepos/highpm/data/y6a1.ccdcorners.fits.gz",
+        "~/gitrepos/highpm/data/delve.ccdcorners.fits",
         ext=1,
         columns=["expnum", "ccdnum", "ra", "dec"],
     )
