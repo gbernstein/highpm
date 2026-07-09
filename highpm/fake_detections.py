@@ -155,10 +155,27 @@ def fov_mask(ra, dec, expnum):
         np.isin(full_corners_cat["expnum"], np.unique(expnum))
     ]
 
+    # Exposures with no corner data can't be FOV-checked. Silently they'd all read
+    # as "outside FOV", quietly emptying the fake catalog (and crashing PM downstream).
+    # Surface the gap instead of hiding it.
+    uniq_exp = np.unique(expnum)
+    missing = np.setdiff1d(uniq_exp, np.unique(corners_cat["expnum"]))
+    if missing.size:
+        print(
+            f"Warning: {missing.size}/{uniq_exp.size} exposures absent from "
+            f"delve.ccdcorners.fits; their fake detections are dropped (no FOV check)."
+        )
+        if missing.size == uniq_exp.size:
+            raise ValueError(
+                "None of this catalog's exposures have CCD corners in "
+                "delve.ccdcorners.fits -- every fake detection would be dropped. "
+                "Rebuild ccdcorners to cover these exposures (the real catalog uses "
+                "y6a1c exposures not in pixmappy's delveExposures.hdf5)."
+            )
+
     fov_masks = np.zeros_like(ra, dtype=bool)
     for i, exp in enumerate(expnum):
 
-        exp_mask = expnum == exp
         corners_exp = corners_cat[corners_cat["expnum"] == exp]
 
         for ccd in corners_exp["ccdnum"]:

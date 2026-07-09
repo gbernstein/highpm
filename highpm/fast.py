@@ -119,6 +119,10 @@ def fast_movers(cat, fitter, config):
     fast_pairs = fast_tree.query_pairs(r=config["fast"]["pairlength"])
     fast_pairs = np.array(list(fast_pairs))
 
+    if len(fast_pairs) == 0:
+        # ponytail: no pairs (empty/sparse catalog) -> no fast movers, nothing to fit
+        return []
+
     fast_posvel, cov, _, good_pairs = new_posvel(fast_pairs, x, y, t, cov_xy, config)
 
     fast_pairs = fast_pairs[good_pairs]
