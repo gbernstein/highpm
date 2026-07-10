@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--gpr-path",
-        required=True,
+        default=None,
         help=(
             "Directory or glob prefix for GPR FITS files names like 'gpr_*{expnum:07d}_<band>.fits'"
         ),
@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--output-path",
-        required=True,
+        default=None,
         help=("Directory or glob prefix for finished exposures."),
     )
 
@@ -55,12 +55,40 @@ if __name__ == "__main__":
         help="(Optional) Path to delveExposures.hdf5 (astropy Table) with pointing info.",
     )
 
+    parser.add_argument("--ra", type=float, default=None, help="Cone-search center RA (deg).")
+    parser.add_argument("--dec", type=float, default=None, help="Cone-search center Dec (deg).")
+    parser.add_argument(
+        "--radius",
+        type=float,
+        default=None,
+        help="Cone-search radius (deg). With --ra/--dec, save all exposures (all bands) within it.",
+    )
+
     args = parser.parse_args()
 
-    if args.healpix is not None and args.pointing_file is None:
-        raise SystemExit(
-            "If --healpix is provided, --pointing-file must also be provided."
-        )
+    cone_mode = args.ra is not None and args.dec is not None and args.radius is not None
+    if cone_mode:
+        if args.pointing_file is None:
+            raise SystemExit("--ra/--dec/--radius cone search requires --pointing-file.")
+    else:
+        if args.gpr_path is None or args.output_path is None:
+            raise SystemExit(
+                "--gpr-path and --output-path are required (unless doing a --ra/--dec/--radius cone search)."
+            )
+        if args.healpix is not None and args.pointing_file is None:
+            raise SystemExit(
+                "If --healpix is provided, --pointing-file must also be provided."
+            )
+
+    def _cone_search(pointing_file, ra0, dec0, radius_deg):
+        import healpy as hp
+        from astropy.table import Table
+
+        cat = Table.read(pointing_file, path="__astropy_table__")
+        center = hp.ang2vec(ra0, dec0, lonlat=True)
+        vecs = hp.ang2vec(cat["pole"][:, 0], cat["pole"][:, 1], lonlat=True)
+        sep = np.degrees(np.arccos(np.clip(vecs @ center, -1.0, 1.0)))
+        return np.unique(np.asarray(cat["expnum"])[sep <= radius_deg])
 
     def _discover_exposures(
         gpr_path: str,
@@ -143,12 +171,19 @@ if __name__ == "__main__":
 
         return np.array(list(exposures))
 
-    print(f"GPR Path: {args.gpr_path}")
-    print(f"Output Path: {args.output_path}")
+    if cone_mode:
+        expos = _cone_search(args.pointing_file, args.ra, args.dec, args.radius)
+        print(
+            f"Found {len(expos)} exposures within {args.radius} deg of "
+            f"({args.ra}, {args.dec})."
+        )
+    else:
+        print(f"GPR Path: {args.gpr_path}")
+        print(f"Output Path: {args.output_path}")
+        expos = _discover_exposures(
+            args.gpr_path, args.output_path, args.healpix, args.nside, args.pointing_file
+        )
 
-    expos = _discover_exposures(
-        args.gpr_path, args.output_path, args.healpix, args.nside, args.pointing_file
-    )
     np.save(args.output_file, expos)
 
     print(f"{len(expos)} exposure numbers saved to {args.output_file}")
