@@ -85,13 +85,14 @@ def generate_noise(
         * errors[:, band_idx, np.newaxis]
     )
 
-    turb_nosie = (
-        rng.multivariate_normal(mean=np.zeros(2), cov=np.eye(2))
-        * np.ones_like(errors[:, band_idx, np.newaxis])
+    turb_noise = (
+        rng.multivariate_normal(
+            mean=np.zeros(2), cov=np.eye(2), size=errors[:, band_idx].size
+        ).reshape(*errors[:, band_idx].shape, 2)
         * turb_error / 3600.0
     )
 
-    return noise + turb_nosie
+    return noise + turb_noise
 
 
 def detprob_logit(m, params):
