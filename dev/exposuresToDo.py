@@ -52,7 +52,7 @@ if __name__ == "__main__":
         "--pointing-file",
         type=str,
         default=None,
-        help="(Optional) Path to a file containing pointing information.",
+        help="(Optional) Path to delveExposures.hdf5 (astropy Table) with pointing info.",
     )
 
     args = parser.parse_args()
@@ -72,31 +72,20 @@ if __name__ == "__main__":
 
         if healpix is not None and pointing_file is not None:
             import healpy as hp
-            import fitsio
+            from astropy.table import Table
 
-            # Load pointing file
-            exposure_cat = fitsio.read(pointing_file, ext=1)
+            # delveExposures.hdf5: astropy Table; pointing center is the "pole" (ra, dec) column
+            exposure_cat = Table.read(pointing_file, path="__astropy_table__")
+            ra = exposure_cat["pole"][:, 0]
+            dec = exposure_cat["pole"][:, 1]
 
             # Determine which exposures have centers in the healpix or its neighbors
-            hp_indices = []
-            hp_indices.append(healpix)
-            neighbors = hp.get_all_neighbours(
-                nside,
-                healpix,
-            )
-            for n in neighbors:
-                if n >= 0:
-                    hp_indices.append(n)
+            neighbors = hp.get_all_neighbours(nside, healpix)
+            hp_indices = [healpix, *neighbors[neighbors >= 0]]
 
-            expo_healpix = hp.ang2pix(
-                nside,
-                np.radians(90.0 - exposure_cat["dec"]),
-                np.radians(exposure_cat["ra"]),
-            )
+            expo_healpix = hp.ang2pix(nside, ra, dec, lonlat=True)
 
-            valid_exposures = exposure_cat[np.isin(expo_healpix, list(hp_indices))][
-                "expnum"
-            ]
+            valid_exposures = exposure_cat[np.isin(expo_healpix, hp_indices)]["expnum"]
 
             print(
                 f"Found {len(valid_exposures)} exposures in healpix {healpix} and neighbors."
