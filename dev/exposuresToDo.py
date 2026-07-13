@@ -70,11 +70,6 @@ if __name__ == "__main__":
     if cone_mode:
         if args.pointing_file is None:
             raise SystemExit("--ra/--dec/--radius cone search requires --pointing-file.")
-        if args.gpr_path is None or args.output_path is None:
-            raise SystemExit(
-                "--ra/--dec/--radius cone search also requires --gpr-path and --output-path "
-                "to filter to available (GPR) and not-yet-done exposures."
-            )
     else:
         if args.gpr_path is None or args.output_path is None:
             raise SystemExit(
@@ -170,21 +165,24 @@ if __name__ == "__main__":
             f"Found {len(expos)} exposures within {args.radius} deg of "
             f"({args.ra}, {args.dec})."
         )
-        gpr_expnums = _scan_expnums(
-            args.gpr_path, "gpr_*_*.fits", r"(\d{7})(?=_[griz]\.fits$)"
-        )
-        if not gpr_expnums:
-            raise SystemExit(
-                "No GPR exposures found. Checked pattern 'gpr_*_<band>.fits' under gpr-path."
+        # ponytail: GPR/output filtering only when both paths given; else save the raw cone.
+        if args.gpr_path is not None:
+            gpr_expnums = _scan_expnums(
+                args.gpr_path, "gpr_*_*.fits", r"(\d{7})(?=_[griz]\.fits$)"
             )
-        output_expnums = _scan_expnums(
-            args.output_path, "position_corrected_*.fits", r"(\d+)"
-        )
-        expos = np.setdiff1d(np.intersect1d(expos, list(gpr_expnums)), list(output_expnums))
-        print(
-            f"{len(expos)} left after keeping GPR-available and dropping "
-            f"{len(output_expnums)} already-done exposures."
-        )
+            if not gpr_expnums:
+                raise SystemExit(
+                    "No GPR exposures found. Checked pattern 'gpr_*_<band>.fits' under gpr-path."
+                )
+            expos = np.intersect1d(expos, list(gpr_expnums))
+        if args.output_path is not None:
+            output_expnums = _scan_expnums(
+                args.output_path, "position_corrected_*.fits", r"(\d+)"
+            )
+            expos = np.setdiff1d(expos, list(output_expnums))
+            print(
+                f"{len(expos)} left after dropping {len(output_expnums)} already-done exposures."
+            )
     else:
         print(f"GPR Path: {args.gpr_path}")
         print(f"Output Path: {args.output_path}")
