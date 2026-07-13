@@ -70,6 +70,11 @@ if __name__ == "__main__":
     if cone_mode:
         if args.pointing_file is None:
             raise SystemExit("--ra/--dec/--radius cone search requires --pointing-file.")
+        if args.gpr_path is None or args.output_path is None:
+            raise SystemExit(
+                "--ra/--dec/--radius cone search also requires --gpr-path and --output-path "
+                "to filter to available (GPR) and not-yet-done exposures."
+            )
     else:
         if args.gpr_path is None or args.output_path is None:
             raise SystemExit(
@@ -79,6 +84,14 @@ if __name__ == "__main__":
             raise SystemExit(
                 "If --healpix is provided, --pointing-file must also be provided."
             )
+
+    def _scan_expnums(directory, pattern, regex):
+        expnums = set()
+        for f in glob(os.path.join(directory, pattern)):
+            m = re.search(regex, os.path.basename(f))
+            if m:
+                expnums.add(int(m.group(1)))
+        return expnums
 
     def _cone_search(pointing_file, ra0, dec0, radius_deg):
         import healpy as hp
@@ -119,31 +132,11 @@ if __name__ == "__main__":
                 f"Found {len(valid_exposures)} exposures in healpix {healpix} and neighbors."
             )
 
-        # Skims look like: D*{expnum:08d}_*.fits -> extract 8 digits before underscore
-        output_files = glob(os.path.join(output_path, "position_corrected_*.fits"))
-        output_expnums = set()
-        for f in output_files:
-            bn = os.path.basename(f)
-            m = re.search(r"(\d+)", bn)
-            if m:
-                try:
-                    output_expnums.add(int(m.group(1)))
-                except ValueError:
-                    pass
+        # position_corrected_*.fits -> first digit run is the expnum
+        output_expnums = _scan_expnums(output_path, "position_corrected_*.fits", r"(\d+)")
 
-        # GPR files look like: gpr_*{expnum:07d}_<band>.fits
-        # Extract 7-digit expnum immediately before the _<band>.fits suffix
-        # and accept common DES bands [g,r,i,z].
-        gpr_files = glob(os.path.join(gpr_path, "gpr_*_*.fits"))
-        gpr_expnums = set()
-        for f in gpr_files:
-            bn = os.path.basename(f)
-            m = re.search(r"(\d{7})(?=_[griz]\.fits$)".replace(" ", ""), bn)
-            if m:
-                try:
-                    gpr_expnums.add(int(m.group(1)))
-                except ValueError:
-                    pass
+        # gpr_*{expnum:07d}_<band>.fits -> 7 digits before the _<band>.fits suffix (DES griz)
+        gpr_expnums = _scan_expnums(gpr_path, "gpr_*_*.fits", r"(\d{7})(?=_[griz]\.fits$)")
 
         if not gpr_expnums:
             raise SystemExit(
@@ -176,6 +169,21 @@ if __name__ == "__main__":
         print(
             f"Found {len(expos)} exposures within {args.radius} deg of "
             f"({args.ra}, {args.dec})."
+        )
+        gpr_expnums = _scan_expnums(
+            args.gpr_path, "gpr_*_*.fits", r"(\d{7})(?=_[griz]\.fits$)"
+        )
+        if not gpr_expnums:
+            raise SystemExit(
+                "No GPR exposures found. Checked pattern 'gpr_*_<band>.fits' under gpr-path."
+            )
+        output_expnums = _scan_expnums(
+            args.output_path, "position_corrected_*.fits", r"(\d+)"
+        )
+        expos = np.setdiff1d(np.intersect1d(expos, list(gpr_expnums)), list(output_expnums))
+        print(
+            f"{len(expos)} left after keeping GPR-available and dropping "
+            f"{len(output_expnums)} already-done exposures."
         )
     else:
         print(f"GPR Path: {args.gpr_path}")
