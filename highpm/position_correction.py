@@ -73,7 +73,11 @@ def loadGPR(filename):
         ],
     )
 
-    splitIds = np.array(np.char.split(data["id"], "_").tolist(), dtype=int)
+    # ponytail: fitsio returns id as bytes/object depending on the file; normalize to str before splitting
+    splitIds = np.array(
+        [(s.decode() if isinstance(s, bytes) else str(s)).split("_") for s in data["id"]],
+        dtype=int,
+    )
 
     newData["OBJECT_NUMBER"] = splitIds[:, 1]
     newData["CCDNUM"] = splitIds[:, 0]
