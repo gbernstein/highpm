@@ -48,6 +48,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--pointing-file", help="Path to delveExposures.hdf5 (astropy Table).")
     parser.add_argument("--dir", help="Directory to scan for exposures.")
+    parser.add_argument(
+        "--dir2",
+        help="Optional second directory; only exposures found in both --dir and --dir2 count.",
+    )
     parser.add_argument("--pattern", default="*", help="Glob pattern for filenames (default: '*').")
     parser.add_argument(
         "--regex",
@@ -82,8 +86,14 @@ if __name__ == "__main__":
     table_expnum = np.asarray(cat["expnum"])
 
     found_expnums = scan_expnums(args.dir, args.pattern, args.regex)
+    if args.dir2:
+        dir2_expnums = scan_expnums(args.dir2, args.pattern, args.regex)
+        found_expnums &= dir2_expnums
+        print(f"{len(found_expnums)} exposures found in both {args.dir} and {args.dir2}.")
+    else:
+        print(f"{len(found_expnums)} exposures found in {args.dir}.")
     found_mask = np.isin(table_expnum, list(found_expnums))
-    print(f"{len(found_expnums)} exposures found in {args.dir}; {found_mask.sum()} matched the pointing table.")
+    print(f"{found_mask.sum()} matched the pointing table.")
 
     pixels, total, found, fraction = per_healpix_fraction(healpix, found_mask, args.nside)
     keep = total >= args.min_exposures
