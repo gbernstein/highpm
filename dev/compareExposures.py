@@ -47,8 +47,9 @@ if __name__ == "__main__":
     print(f"Found {len(found_arr)} exposures across {len(args.dirs)} dir(s).")
     print(f"Reference file has {len(reference)} exposures.")
     print(f"Common: {len(common)}")
-    for expnum in common:
-        print(f"  {expnum}: {sorted(found[expnum])}")
+    for directory in args.dirs:
+        count = sum(1 for expnum in common if directory in found[expnum])
+        print(f"  {directory}: {count}")
     print(f"In reference but not found: {len(missing)}")
     if len(missing):
         print(missing)
