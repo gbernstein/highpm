@@ -55,6 +55,12 @@ if __name__ == "__main__":
         help=f"Regex whose first group is the expnum (default: '{DEFAULT_REGEX}').",
     )
     parser.add_argument("--nside", type=int, default=32, help="Healpix nside (default 32).")
+    parser.add_argument(
+        "--min-exposures",
+        type=int,
+        default=1,
+        help="Disregard healpixels with fewer than this many table exposures (default 1).",
+    )
     parser.add_argument("--output-file", help="Optional path to save per-healpixel counts as CSV.")
     parser.add_argument("--plot-file", help="Optional path to save a Mollweide map colored by fraction found.")
     parser.add_argument("--self-test", action="store_true", help="Run a self-check and exit.")
@@ -80,6 +86,8 @@ if __name__ == "__main__":
     print(f"{len(found_expnums)} exposures found in {args.dir}; {found_mask.sum()} matched the pointing table.")
 
     pixels, total, found, fraction = per_healpix_fraction(healpix, found_mask, args.nside)
+    keep = total >= args.min_exposures
+    pixels, total, found, fraction = pixels[keep], total[keep], found[keep], fraction[keep]
     rows = [row for row in zip(pixels, total, found, fraction) if row[2] > 0]
     for p, t, f, frac in sorted(rows, key=lambda x: (x[3], x[1])):
         print(f"healpix {p:6d}: {f:5d}/{t:5d} ({frac:.1%})")
