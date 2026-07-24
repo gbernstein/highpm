@@ -43,9 +43,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--gpr-path",
         required=True,
+        nargs="+",
         help=(
-            "Directory or glob prefix for GPR FITS files named like 'gpr_*{expnum:07d}_<band>.fits'"
-            " (e.g., gpr_something_1234567_r.fits)."
+            "One or more directories/glob prefixes for GPR FITS files named like "
+            "'gpr_*{expnum:07d}_<band>.fits' (e.g., gpr_something_1234567_r.fits)."
         ),
     )
     parser.add_argument(
@@ -116,7 +117,7 @@ if __name__ == "__main__":
         )
 
     # Helper: discover exposures from files when none provided
-    def _discover_exposures(skims_path: str, gpr_path: str) -> np.ndarray:
+    def _discover_exposures(skims_path: str, gpr_paths) -> np.ndarray:
         # Skims look like: D*{expnum:08d}_*.fits -> extract 8 digits before underscore
         skim_files = glob(os.path.join(skims_path, "D*.fits"))
         skim_expnums = set()
@@ -132,7 +133,9 @@ if __name__ == "__main__":
         # GPR files look like: gpr_*{expnum:07d}_<band>.fits
         # Extract 7-digit expnum immediately before the _<band>.fits suffix
         # and accept common DES bands [g,r,i,z].
-        gpr_files = glob(os.path.join(gpr_path, "gpr_*_*.fits"))
+        gpr_files = [
+            f for gpr_path in gpr_paths for f in glob(os.path.join(gpr_path, "gpr_*_*.fits"))
+        ]
         gpr_expnums = set()
         for f in gpr_files:
             bn = os.path.basename(f)

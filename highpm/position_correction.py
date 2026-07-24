@@ -125,13 +125,23 @@ def getGPRFile(expnum, gprPath="./"):
 
     New convention: files are named like 'gpr_*{expnum:07d}_{band}.fits'.
     If multiple bands exist for the same exposure, prefer a deterministic band order.
+    gprPath may be a single directory or a list of directories to search.
     """
+    gprPaths = [gprPath] if isinstance(gprPath, str) else gprPath
+
     # Match any band suffix
-    pattern = os.path.join(gprPath, f"gpr_*{expnum:07d}_*.fits")
-    matches = glob.glob(pattern)
+    matches = [
+        m
+        for path in gprPaths
+        for m in glob.glob(os.path.join(path, f"gpr_*{expnum:07d}_*.fits"))
+    ]
     if not matches:
         # Fall back to legacy naming without band (older data sets)
-        legacy = glob.glob(os.path.join(gprPath, f"gpr_*{expnum:07d}.fits"))
+        legacy = [
+            m
+            for path in gprPaths
+            for m in glob.glob(os.path.join(path, f"gpr_*{expnum:07d}.fits"))
+        ]
         if not legacy:
             # raise FileNotFoundError(
             #     f"No GPR files found for exposure number {expnum} in '{gprPath}'."
