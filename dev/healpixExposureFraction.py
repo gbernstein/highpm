@@ -79,7 +79,8 @@ if __name__ == "__main__":
     print(f"{len(found_expnums)} exposures found in {args.dir}; {found_mask.sum()} matched the pointing table.")
 
     pixels, total, found, fraction = per_healpix_fraction(healpix, found_mask, args.nside)
-    for p, t, f, frac in sorted(zip(pixels, total, found, fraction), key=lambda x: (-x[3], -x[1])):
+    rows = [row for row in zip(pixels, total, found, fraction) if row[2] > 0]
+    for p, t, f, frac in sorted(rows, key=lambda x: (x[3], x[1])):
         print(f"healpix {p:6d}: {f:5d}/{t:5d} ({frac:.1%})")
 
     if args.output_file:
