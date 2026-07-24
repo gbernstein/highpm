@@ -95,6 +95,12 @@ if __name__ == "__main__":
             "Index of exposure number in --exposures-npy."
         ),
     )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=1,
+        help="Number of exposures per --index (default: 1, i.e. one exposure per index).",
+    )
 
     args = parser.parse_args()
 
@@ -168,7 +174,8 @@ if __name__ == "__main__":
         source = "auto-discovered"
 
     if args.index is not None and args.exposures_npy is not None:
-        exposures = exposures[args.index : args.index + 1]
+        start = args.index * args.chunk_size
+        exposures = exposures[start : start + args.chunk_size]
 
     print(f"Skim Path: {args.skims_path}")
     print(f"GPR Path: {args.gpr_path}")
