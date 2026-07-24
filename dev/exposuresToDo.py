@@ -96,7 +96,8 @@ if __name__ == "__main__":
         center = hp.ang2vec(ra0, dec0, lonlat=True)
         vecs = hp.ang2vec(cat["pole"][:, 0], cat["pole"][:, 1], lonlat=True)
         sep = np.degrees(np.arccos(np.clip(vecs @ center, -1.0, 1.0)))
-        return np.unique(np.asarray(cat["expnum"])[sep <= radius_deg])
+        keep = sep <= radius_deg
+        return np.unique(np.asarray(cat["expnum"])[keep]), cat["pole"][:,0][keep], cat["pole"][:,1][keep]
 
     def _discover_exposures(
         gpr_path: str,
@@ -160,7 +161,7 @@ if __name__ == "__main__":
         return np.array(list(exposures))
 
     if cone_mode:
-        expos = _cone_search(args.pointing_file, args.ra, args.dec, args.radius)
+        expos, expo_ra, expo_dec = _cone_search(args.pointing_file, args.ra, args.dec, args.radius)
         print(
             f"Found {len(expos)} exposures within {args.radius} deg of "
             f"({args.ra}, {args.dec})."
@@ -189,6 +190,18 @@ if __name__ == "__main__":
         expos = _discover_exposures(
             args.gpr_path, args.output_path, args.healpix, args.nside, args.pointing_file
         )
+
+    import matplotlib.pyplot as plt
+
+    plt.figure()
+    plt.scatter(
+            expo_ra,
+            expo_dec,
+            s=1,
+            c="r",
+    )
+    plt.savefig(args.output_file+".png")
+    plt.show()
 
     np.save(args.output_file, expos)
 
