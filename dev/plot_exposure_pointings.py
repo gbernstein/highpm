@@ -48,6 +48,8 @@ if __name__ == "__main__":
     ra, dec = match_pointings(expnums, args.pointing_file)
     print(f"Matched {len(ra)} pointings in {args.pointing_file}.")
 
+    ra = np.where(ra > 180, ra - 360, ra)  # center RA=0 in the plot
+
     plt.scatter(ra, dec, s=2, alpha=0.5)
     plt.gca().invert_xaxis()
     plt.xlabel("RA (deg)")
