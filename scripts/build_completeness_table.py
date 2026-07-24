@@ -18,7 +18,7 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 MEASURED = os.path.join(DATA, "y6a1c.exposures.positions.fits")
 DESY6 = os.path.join(DATA, "all_desy6.csv")
 DELVE = os.path.expanduser("~/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5")
-OUT = os.path.join(DATA, "y6a1c.exposures.completeness.fits")
+OUT = os.path.join(DATA, "delve.exposures.completeness.fits")
 
 BANDS = ("g", "r", "i", "z")  # ponytail: Y unused by pipeline (band_idx is g/r/i/z)
 M50_SLOPE = 1.25  # physical mag-per-dex; only the intercept is fit (per TeffTesting.ipynb)
