@@ -56,6 +56,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--nside", type=int, default=32, help="Healpix nside (default 32).")
     parser.add_argument("--output-file", help="Optional path to save per-healpixel counts as CSV.")
+    parser.add_argument("--plot-file", help="Optional path to save a Mollweide map colored by fraction found.")
     parser.add_argument("--self-test", action="store_true", help="Run a self-check and exit.")
     args = parser.parse_args()
 
@@ -87,3 +88,12 @@ if __name__ == "__main__":
         out = np.column_stack([pixels, total, found, fraction])
         np.savetxt(args.output_file, out, header="healpix total found fraction", fmt=["%d", "%d", "%d", "%.4f"])
         print(f"Saved to {args.output_file}")
+
+    if args.plot_file:
+        import matplotlib.pyplot as plt
+
+        m = np.full(12 * args.nside**2, hp.UNSEEN)
+        m[pixels] = fraction
+        hp.mollview(m, min=0, max=1, unit="fraction found", title="DELVE exposure coverage fraction", cmap="viridis")
+        plt.savefig(args.plot_file)
+        print(f"Saved plot to {args.plot_file}")
