@@ -5,17 +5,18 @@ from glob import glob
 
 import numpy as np
 
-DEFAULT_REGEX = r"(\d{8})"
+DEFAULT_REGEX = r"(\d{7})"
 
 
 def scan_expnums(directories, pattern, regex):
-    expnums = set()
+    """Return {expnum: {directories it was found in}}."""
+    expnums = {}
     for directory in directories:
         for f in glob(os.path.join(directory, pattern)):
             m = re.search(regex, os.path.basename(f))
             if m:
-                expnums.add(int(m.group(1)))
-    return np.array(sorted(expnums))
+                expnums.setdefault(int(m.group(1)), set()).add(directory)
+    return expnums
 
 
 if __name__ == "__main__":
@@ -36,15 +37,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     found = scan_expnums(args.dirs, args.pattern, args.regex)
+    found_arr = np.array(sorted(found))
     reference = np.unique(np.load(args.npy_file))
 
-    missing = np.setdiff1d(reference, found)
-    extra = np.setdiff1d(found, reference)
-    common = np.intersect1d(found, reference)
+    missing = np.setdiff1d(reference, found_arr)
+    extra = np.setdiff1d(found_arr, reference)
+    common = np.intersect1d(found_arr, reference)
 
-    print(f"Found {len(found)} exposures across {len(args.dirs)} dir(s).")
+    print(f"Found {len(found_arr)} exposures across {len(args.dirs)} dir(s).")
     print(f"Reference file has {len(reference)} exposures.")
     print(f"Common: {len(common)}")
+    for expnum in common:
+        print(f"  {expnum}: {sorted(found[expnum])}")
     print(f"In reference but not found: {len(missing)}")
     if len(missing):
         print(missing)
