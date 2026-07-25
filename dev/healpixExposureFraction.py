@@ -6,7 +6,8 @@ from glob import glob
 
 import numpy as np
 
-DEFAULT_REGEX = r"(\d{7})"
+DEFAULT_PATTERN = "[griz]/position_corrected_*.fits"  # same convention as scripts/detectionPacking.py
+DEFAULT_REGEX = r"_(\d+)\.fits$"  # trailing digits before .fits, same as scripts/detectionPacking.py
 
 
 def scan_expnums(directory, pattern, regex):
@@ -52,7 +53,11 @@ if __name__ == "__main__":
         "--dir2",
         help="Optional second directory; only exposures found in both --dir and --dir2 count.",
     )
-    parser.add_argument("--pattern", default="*", help="Glob pattern for filenames (default: '*').")
+    parser.add_argument(
+        "--pattern",
+        default=DEFAULT_PATTERN,
+        help=f"Glob pattern for filenames, same convention as scripts/detectionPacking.py (default: '{DEFAULT_PATTERN}').",
+    )
     parser.add_argument(
         "--regex",
         default=DEFAULT_REGEX,
