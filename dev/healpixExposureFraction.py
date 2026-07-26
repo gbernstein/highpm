@@ -68,6 +68,14 @@ if __name__ == "__main__":
         help="Optional second directory; only exposures found in both --dir and --dir2 count.",
     )
     parser.add_argument(
+        "--dir2-fraction",
+        action="store_true",
+        help=(
+            "With --dir2, report per healpix what fraction of --dir exposures are also "
+            "in --dir2, instead of requiring both to count against the pointing table."
+        ),
+    )
+    parser.add_argument(
         "--pattern",
         default=DEFAULT_PATTERN,
         help=f"Glob pattern for filenames, same convention as dev/exposuresToDo.py (default: '{DEFAULT_PATTERN}').",
@@ -101,6 +109,8 @@ if __name__ == "__main__":
 
     if not args.pointing_file or not args.dir:
         parser.error("--pointing-file and --dir are required")
+    if args.dir2_fraction and not args.dir2:
+        parser.error("--dir2-fraction requires --dir2")
 
     import healpy as hp
     from astropy.table import Table
@@ -111,14 +121,22 @@ if __name__ == "__main__":
     table_expnum = np.asarray(cat["expnum"])
 
     found_expnums = scan_expnums(args.dir, args.pattern, args.regex)
-    if args.dir2:
+    if args.dir2_fraction:
         dir2_expnums = scan_expnums(args.dir2, args.pattern, args.regex)
-        found_expnums &= dir2_expnums
-        print(f"{len(found_expnums)} exposures found in both {args.dir} and {args.dir2}.")
+        print(f"{len(found_expnums)} exposures in {args.dir}, computing fraction also in {args.dir2}.")
+        in_dir_mask = np.isin(table_expnum, list(found_expnums))
+        found_mask = np.isin(table_expnum, list(found_expnums & dir2_expnums))[in_dir_mask]
+        pixel_lists = [p for p, keep in zip(pixel_lists, in_dir_mask) if keep]
+        print(f"{found_mask.sum()} of {len(found_mask)} --dir exposures also found in --dir2.")
     else:
-        print(f"{len(found_expnums)} exposures found in {args.dir}.")
-    found_mask = np.isin(table_expnum, list(found_expnums))
-    print(f"{found_mask.sum()} matched the pointing table.")
+        if args.dir2:
+            dir2_expnums = scan_expnums(args.dir2, args.pattern, args.regex)
+            found_expnums &= dir2_expnums
+            print(f"{len(found_expnums)} exposures found in both {args.dir} and {args.dir2}.")
+        else:
+            print(f"{len(found_expnums)} exposures found in {args.dir}.")
+        found_mask = np.isin(table_expnum, list(found_expnums))
+        print(f"{found_mask.sum()} matched the pointing table.")
 
     pixels, total, found, fraction = per_healpix_fraction(pixel_lists, found_mask, args.nside)
     keep = total >= args.min_exposures
