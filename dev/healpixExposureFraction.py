@@ -19,24 +19,38 @@ def scan_expnums(directory, pattern, regex):
     return expnums
 
 
-def per_healpix_fraction(healpix, found_mask, nside):
-    """Vectorized per-pixel (total, found, fraction) via bincount."""
+def exposure_pixels(ra, dec, nside, radius_deg, hp):
+    """List of healpixel arrays overlapping each exposure's footprint disc."""
+    vecs = hp.ang2vec(ra, dec, lonlat=True)
+    rad = np.radians(radius_deg)
+    return [hp.query_disc(nside, v, rad, inclusive=True) for v in vecs]
+
+
+def per_healpix_fraction(pixel_lists, found_mask, nside):
+    """Vectorized per-pixel (total, found, fraction) via bincount.
+
+    pixel_lists[i] = healpixels overlapping exposure i; an exposure counts
+    toward every pixel it overlaps, not just the one containing its center.
+    """
     npix = 12 * nside**2
-    total = np.bincount(healpix, minlength=npix)
-    found = np.bincount(healpix[found_mask], minlength=npix)
+    counts = np.fromiter((len(p) for p in pixel_lists), dtype=int, count=len(pixel_lists))
+    all_pixels = np.concatenate(pixel_lists) if len(pixel_lists) else np.array([], dtype=int)
+    all_found = np.repeat(np.asarray(found_mask), counts)
+    total = np.bincount(all_pixels, minlength=npix)
+    found = np.bincount(all_pixels[all_found], minlength=npix)
     fraction = np.divide(found, total, out=np.zeros_like(found, dtype=float), where=total > 0)
     pixels = np.nonzero(total)[0]
     return pixels, total[pixels], found[pixels], fraction[pixels]
 
 
 def _self_test():
-    healpix = np.array([1, 1, 1, 2, 2, 3])
-    found_mask = np.array([True, True, False, True, False, False])
-    pixels, total, found, fraction = per_healpix_fraction(healpix, found_mask, nside=32)
+    pixel_lists = [np.array([1, 2]), np.array([1]), np.array([2, 3])]
+    found_mask = np.array([True, True, False])
+    pixels, total, found, fraction = per_healpix_fraction(pixel_lists, found_mask, nside=32)
     assert list(pixels) == [1, 2, 3]
-    assert list(total) == [3, 2, 1]
+    assert list(total) == [2, 2, 1]
     assert list(found) == [2, 1, 0]
-    np.testing.assert_allclose(fraction, [2 / 3, 1 / 2, 0.0])
+    np.testing.assert_allclose(fraction, [1.0, 1 / 2, 0.0])
     print("self-test ok")
 
 
@@ -65,6 +79,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--nside", type=int, default=32, help="Healpix nside (default 32).")
     parser.add_argument(
+        "--radius",
+        type=float,
+        default=1.1,
+        help="Exposure footprint disc radius in degrees, ~DES focal plane radius (default 1.1).",
+    )
+    parser.add_argument(
         "--min-exposures",
         type=int,
         default=1,
@@ -87,7 +107,7 @@ if __name__ == "__main__":
 
     cat = Table.read(args.pointing_file, path="__astropy_table__")
     ra, dec = cat["pole"][:, 0], cat["pole"][:, 1]
-    healpix = hp.ang2pix(args.nside, ra, dec, lonlat=True)
+    pixel_lists = exposure_pixels(ra, dec, args.nside, args.radius, hp)
     table_expnum = np.asarray(cat["expnum"])
 
     found_expnums = scan_expnums(args.dir, args.pattern, args.regex)
@@ -100,7 +120,7 @@ if __name__ == "__main__":
     found_mask = np.isin(table_expnum, list(found_expnums))
     print(f"{found_mask.sum()} matched the pointing table.")
 
-    pixels, total, found, fraction = per_healpix_fraction(healpix, found_mask, args.nside)
+    pixels, total, found, fraction = per_healpix_fraction(pixel_lists, found_mask, args.nside)
     keep = total >= args.min_exposures
     pixels, total, found, fraction = pixels[keep], total[keep], found[keep], fraction[keep]
     rows = [row for row in zip(pixels, total, found, fraction) if row[2] > 0]
