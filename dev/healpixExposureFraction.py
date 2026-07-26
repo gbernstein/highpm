@@ -100,6 +100,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--output-file", help="Optional path to save per-healpixel counts as CSV.")
     parser.add_argument("--plot-file", help="Optional path to save a Mollweide map colored by fraction found.")
+    parser.add_argument("--ra", type=float, help="Optional RA (deg) of a point to mark on --plot-file.")
+    parser.add_argument("--dec", type=float, help="Optional Dec (deg) of a point to mark on --plot-file.")
     parser.add_argument("--self-test", action="store_true", help="Run a self-check and exit.")
     args = parser.parse_args()
 
@@ -111,6 +113,8 @@ if __name__ == "__main__":
         parser.error("--pointing-file and --dir are required")
     if args.dir2_fraction and not args.dir2:
         parser.error("--dir2-fraction requires --dir2")
+    if (args.ra is None) != (args.dec is None):
+        parser.error("--ra and --dec must be given together")
 
     import healpy as hp
     from astropy.table import Table
@@ -156,5 +160,7 @@ if __name__ == "__main__":
         m = np.full(12 * args.nside**2, hp.UNSEEN)
         m[pixels] = fraction
         hp.mollview(m, min=0, max=1, unit="fraction found", title="DELVE exposure coverage fraction", cmap="viridis")
+        if args.ra is not None and args.dec is not None:
+            hp.projscatter(args.ra, args.dec, lonlat=True, marker="*", color="red", s=100)
         plt.savefig(args.plot_file)
         print(f"Saved plot to {args.plot_file}")
