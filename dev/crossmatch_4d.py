@@ -34,17 +34,17 @@ def get_col(table, spec):
 
 
 def crossmatch_4d(pts1, pts2, tolerance):
-    """Nearest neighbor in pts2 for each row of pts1; returns (matched_mask, idx_in_pts2)."""
+    """Nearest neighbor in pts2 for each row of pts1; returns (matched_mask, idx_in_pts2, dist)."""
     tree = KDTree(pts2)
     dist, idx = tree.query(pts1)
-    return dist < tolerance, idx
+    return dist < tolerance, idx, dist
 
 
 if __name__ == "__main__":
     if "--test" in sys.argv:
         pts1 = np.array([[0, 0, 0, 0], [10, 10, 10, 10]])
         pts2 = np.array([[0.01, 0, 0, 0], [5, 5, 5, 5]])
-        matched, idx = crossmatch_4d(pts1, pts2, tolerance=1.0)
+        matched, idx, _ = crossmatch_4d(pts1, pts2, tolerance=1.0)
         assert matched.tolist() == [True, False]
         assert idx[0] == 0
         print("self-test ok")
@@ -63,7 +63,15 @@ if __name__ == "__main__":
     pts1 = np.vstack([xi1 * 3600, eta1 * 3600, t1[TABLE1_COL3] * COL34_SCALE, t1[TABLE1_COL4] * COL34_SCALE]).T
     pts2 = np.vstack([xi2 * 3600, eta2 * 3600, get_col(t2, TABLE2_COL3), get_col(t2, TABLE2_COL4)]).T
 
-    matched, idx = crossmatch_4d(pts1, pts2, MATCH_TOLERANCE)
+    matched, idx, dist = crossmatch_4d(pts1, pts2, MATCH_TOLERANCE)
+
+    print(f"Table1 rows: {len(pts1)}")
+    print(f"Table2 rows: {len(pts2)}")
+    print(f"Nearest-neighbor 4D distance (arcsec): min={dist.min():.3g} median={np.median(dist):.3g}")
+    print(f"Matched (< {MATCH_TOLERANCE} arcsec): {matched.sum()}")
+
+    if matched.sum() == 0:
+        sys.exit()
 
     matched_t1 = t1[matched]
     matched_t2 = t2[idx[matched]]
@@ -73,8 +81,5 @@ if __name__ == "__main__":
     rms_12 = np.sqrt(np.mean(np.sum((matched_pts1[:, :2] - matched_pts2[:, :2]) ** 2, axis=1)))
     rms_34 = np.sqrt(np.mean(np.sum((matched_pts1[:, 2:] - matched_pts2[:, 2:]) ** 2, axis=1)))
 
-    print(f"Table1 rows: {len(pts1)}")
-    print(f"Table2 rows: {len(pts2)}")
-    print(f"Matched: {matched.sum()}")
     print(f"RMS separation (col1, col2): {rms_12}")
     print(f"RMS separation (col3, col4): {rms_34}")
