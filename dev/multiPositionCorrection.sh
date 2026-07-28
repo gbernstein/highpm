@@ -15,8 +15,8 @@ source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 
 python /home2/vwetzell/gitrepos/highpm/scripts/positionCorrection.py \
 	--skims-path "/data8/shared/decampm/[GRIZ]/" \
-	--gpr-path "/data8/shared/decampm/prev_des/[griz]/" "/data8/shared/decampm/delve_processed_exposures/cat/[griz]/" "/home2/dchgomes/Turbulence_GPR/DES_DELVE/sculptor_nwcs/cat/[griz]/" \
-	--coadd-path /home2/dchgomes/Turbulence_GPR/DES_DELVE/coadd_skims/ \
+	--gpr-path "/data8/shared/decampm/prev_des/[griz]/" \
+	--coadd-path /data8/shared/decampm/COADDS/ \
 	--output-path /home2/vwetzell/ProperMotion_v3/PositionCorrectedExposureCatalog/cat/ \
 	--des-exposures /home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5 \
 	--processes 1 \
