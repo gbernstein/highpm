@@ -191,7 +191,7 @@ def findCoaddFile(ra0, dec0, radius=1.1, nside=32, coaddPath="./") -> List[str]:
     npix = np.arange(hp.nside2npix(nside))
     coaddpix = npix[ipix]
     coaddFiles = [
-        os.path.join(coaddPath, f"dr3_gold_{pix:05d}.fits") for pix in coaddpix
+        os.path.join(coaddPath, f"cat_hpx_{pix:05d}.fits") for pix in coaddpix
     ]
     return coaddFiles
 
