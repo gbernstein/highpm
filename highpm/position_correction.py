@@ -12,6 +12,12 @@ import pixmappy as pm
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 
+from highpm.crossmatch import mutual_nearest_neighbor
+from highpm.gnomonic_converter import projectGnomonic
+
+MIN_ID_MATCH_FRACTION = 0.5  # below this (or on a join_by error), fall back to RA/Dec matching
+POSITION_MATCH_TOLERANCE = 1.0  # arcsec, for the RA/Dec fallback match
+
 
 def loadSkim(filename):
     if not os.path.exists(filename):
@@ -24,6 +30,8 @@ def loadSkim(filename):
             "OBJECT_NUMBER",
             "CCDNUM",
             "BAND",
+            "ALPHAWIN_J2000",
+            "DELTAWIN_J2000",
             "XWIN_IMAGE",
             "YWIN_IMAGE",
             "SPREAD_MODEL",
@@ -194,8 +202,56 @@ def combineCoadds(coaddFiles: List[str]):
     return np.concatenate(combinedData)
 
 
+def matchGPRToSkimByPosition(gprData, skimData, tolerance=POSITION_MATCH_TOLERANCE):
+    """Fallback for matchGPRToSkim: match by RA/Dec (mutual nearest neighbor,
+    arcsec tolerance) instead of by (OBJECT_NUMBER, CCDNUM) id."""
+    ra1, dec1 = gprData["NEW_RA"], gprData["NEW_DEC"]
+    ra2, dec2 = skimData["ALPHAWIN_J2000"], skimData["DELTAWIN_J2000"]
+    ra0, dec0 = np.mean(ra1), np.mean(dec1)
+
+    xi1, eta1, *_ = projectGnomonic(ra1, dec1, np.zeros_like(ra1), np.zeros_like(ra1), ra0, dec0)
+    xi2, eta2, *_ = projectGnomonic(ra2, dec2, np.zeros_like(ra2), np.zeros_like(ra2), ra0, dec0)
+
+    pts1 = np.vstack([xi1, eta1]).T * 3600.0
+    pts2 = np.vstack([xi2, eta2]).T * 3600.0
+
+    matched, idx, _ = mutual_nearest_neighbor(pts1, pts2, tolerance)
+
+    matchedSkim = rfn.drop_fields(
+        skimData[idx[matched]], ["OBJECT_NUMBER", "CCDNUM", "ALPHAWIN_J2000", "DELTAWIN_J2000"]
+    )
+    return rfn.merge_arrays(
+        [gprData[matched], matchedSkim], asrecarray=True, usemask=False, flatten=True
+    )
+
+
+def _hasDuplicateKeys(data, keys=("OBJECT_NUMBER", "CCDNUM")):
+    combined = np.stack([data[k] for k in keys], axis=1)
+    _, counts = np.unique(combined, axis=0, return_counts=True)
+    return bool(np.any(counts > 1))
+
+
 def matchGPRToSkim(gprData, skimData):
-    return rfn.join_by(("OBJECT_NUMBER", "CCDNUM"), gprData, skimData, jointype="outer")
+    """Join gprData to skimData by (OBJECT_NUMBER, CCDNUM) id; fall back to a 2D
+    RA/Dec match if either side has duplicate keys (rfn.join_by silently misaligns
+    rows rather than erroring on those, per its own docstring) or the id join
+    matches too few rows (e.g. object numbering changed between the GPR run and
+    this skim file).
+    """
+    if _hasDuplicateKeys(gprData) or _hasDuplicateKeys(skimData):
+        print("Duplicate (OBJECT_NUMBER, CCDNUM) keys found; falling back to RA/Dec match.")
+        return matchGPRToSkimByPosition(gprData, skimData)
+
+    nIdMatched = len(rfn.join_by(("OBJECT_NUMBER", "CCDNUM"), gprData, skimData, jointype="inner"))
+
+    if nIdMatched >= MIN_ID_MATCH_FRACTION * len(gprData):
+        return rfn.join_by(("OBJECT_NUMBER", "CCDNUM"), gprData, skimData, jointype="outer")
+
+    print(
+        f"ID match between GPR and skim only matched {nIdMatched}/{len(gprData)} rows; "
+        "falling back to RA/Dec match."
+    )
+    return matchGPRToSkimByPosition(gprData, skimData)
 
 
 def matchGPRToCoadd(coaddData, joinedSkimGPRData, radius=0.5):

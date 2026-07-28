@@ -6,9 +6,9 @@ import sys
 
 import fitsio
 import numpy as np
-from scipy.spatial import KDTree
 
 sys.path.append("/home/vwetzell/gitrepos/highpm")
+from highpm.crossmatch import mutual_nearest_neighbor as crossmatch_4d
 from highpm.gnomonic_converter import projectGnomonic
 
 TABLE1_FILE = "/data8/shared/decampm/R/D00485012_r_cat.fits"
@@ -31,21 +31,6 @@ COL34_SCALE = 0.264  # table1 col3/col4 (pixels) -> arcsec
 
 def get_col(table, spec):
     return table[spec] if isinstance(spec, str) else table[spec[0]][:, spec[1]]
-
-
-def crossmatch_4d(pts1, pts2, tolerance):
-    """Symmetric best match: pts1[i] <-> pts2[idx[i]] counts only if each is the
-    other's nearest neighbor (mutual NN), which is automatically one-to-one.
-
-    Returns (matched_mask, idx_in_pts2, dist).
-    """
-    dist, idx = KDTree(pts2).query(pts1)
-    dist_back, idx_back = KDTree(pts1).query(pts2)
-
-    mutual = idx_back[idx] == np.arange(len(pts1))
-    matched = mutual & (dist < tolerance)
-
-    return matched, idx, dist
 
 
 if __name__ == "__main__":
