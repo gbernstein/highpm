@@ -82,13 +82,22 @@ def loadGPR(filename):
     )
 
     # ponytail: fitsio returns id as bytes/object depending on the file; normalize to str before splitting
-    splitIds = np.array(
-        [(s.decode() if isinstance(s, bytes) else str(s)).split("_") for s in data["id"]],
-        dtype=int,
-    )
-
-    newData["OBJECT_NUMBER"] = splitIds[:, 1]
-    newData["CCDNUM"] = splitIds[:, 0]
+    try:
+        splitIds = np.array(
+            [(s.decode() if isinstance(s, bytes) else str(s)).split("_") for s in data["id"]],
+            dtype=int,
+        )
+        if splitIds.ndim != 2 or splitIds.shape[1] != 2:
+            raise ValueError(f"expected 'CCDNUM_OBJECTNUMBER' ids, got shape {splitIds.shape}")
+        newData["OBJECT_NUMBER"] = splitIds[:, 1]
+        newData["CCDNUM"] = splitIds[:, 0]
+    except ValueError as e:
+        print(
+            f"Warning: could not parse GPR ids in {filename} ({e}); "
+            "OBJECT_NUMBER/CCDNUM left invalid, will fall back to RA/Dec match."
+        )
+        newData["OBJECT_NUMBER"] = -1
+        newData["CCDNUM"] = -1
     newData["NEW_RA"] = data["new_rd"][:, 0]
     newData["NEW_DEC"] = data["new_rd"][:, 1]
     newData["NEW_RA_ERR"] = np.sqrt(data["cov_model"][:, 0, 0])
@@ -217,11 +226,13 @@ def matchGPRToSkimByPosition(gprData, skimData, tolerance=POSITION_MATCH_TOLERAN
 
     matched, idx, _ = mutual_nearest_neighbor(pts1, pts2, tolerance)
 
-    matchedSkim = rfn.drop_fields(
-        skimData[idx[matched]], ["OBJECT_NUMBER", "CCDNUM", "ALPHAWIN_J2000", "DELTAWIN_J2000"]
-    )
+    # Keep skimData's OBJECT_NUMBER/CCDNUM (always genuine) rather than gprData's
+    # (which may be unparsed sentinels -- see loadGPR), since downstream per-CCD
+    # WCS lookups need a real CCDNUM.
+    matchedGpr = rfn.drop_fields(gprData[matched], ["OBJECT_NUMBER", "CCDNUM"])
+    matchedSkim = rfn.drop_fields(skimData[idx[matched]], ["ALPHAWIN_J2000", "DELTAWIN_J2000"])
     return rfn.merge_arrays(
-        [gprData[matched], matchedSkim], asrecarray=True, usemask=False, flatten=True
+        [matchedGpr, matchedSkim], asrecarray=True, usemask=False, flatten=True
     )
 
 
