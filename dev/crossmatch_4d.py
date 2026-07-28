@@ -34,18 +34,30 @@ def get_col(table, spec):
 
 
 def crossmatch_4d(pts1, pts2, tolerance):
-    """Nearest neighbor in pts2 for each row of pts1; returns (matched_mask, idx_in_pts2, dist)."""
+    """Nearest neighbor in pts2 for each row of pts1, kept unique per pts2 row (closest wins).
+
+    Returns (matched_mask, idx_in_pts2, dist).
+    """
     tree = KDTree(pts2)
     dist, idx = tree.query(pts1)
-    return dist < tolerance, idx, dist
+    matched = dist < tolerance
+
+    keep = np.zeros(len(pts1), dtype=bool)
+    seen = set()
+    for i in np.argsort(dist):
+        if matched[i] and idx[i] not in seen:
+            seen.add(idx[i])
+            keep[i] = True
+
+    return keep, idx, dist
 
 
 if __name__ == "__main__":
     if "--test" in sys.argv:
-        pts1 = np.array([[0, 0, 0, 0], [10, 10, 10, 10]])
-        pts2 = np.array([[0.01, 0, 0, 0], [5, 5, 5, 5]])
+        pts1 = np.array([[0, 0, 0, 0], [0.5, 0, 0, 0], [10, 10, 10, 10]])
+        pts2 = np.array([[0, 0, 0, 0], [5, 5, 5, 5]])
         matched, idx, _ = crossmatch_4d(pts1, pts2, tolerance=1.0)
-        assert matched.tolist() == [True, False]
+        assert matched.tolist() == [True, False, False]  # row 1 loses row 0's table2 match to the closer row 0
         assert idx[0] == 0
         print("self-test ok")
         sys.exit()
