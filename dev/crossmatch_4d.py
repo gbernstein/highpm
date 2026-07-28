@@ -88,6 +88,16 @@ if __name__ == "__main__":
     print(f"Nearest-neighbor {'2D' if two_d else '4D'} distance (arcsec): min={dist.min():.3g} median={np.median(dist):.3g}")
     print(f"Matched (< {MATCH_TOLERANCE} arcsec): {matched.sum()}")
 
+    if not two_d:
+        # col1/col2 alone match reliably; use that (independent of the col3/col4 tolerance)
+        # to check whether col3/col4 disagree by a fixable constant offset or don't
+        # correspond at all, even when the combined 4D match finds ~0 rows.
+        radec_matched, radec_idx, _ = crossmatch_4d(pts1[:, :2], pts2[:, :2], MATCH_TOLERANCE)
+        diff34 = pts1[radec_matched, 2:] - pts2[radec_idx[radec_matched], 2:]
+        print(f"[of {radec_matched.sum()} col1/col2-only matches]")
+        print(f"col3 diff (arcsec): median={np.median(diff34[:, 0]):.3g} std={diff34[:, 0].std():.3g}")
+        print(f"col4 diff (arcsec): median={np.median(diff34[:, 1]):.3g} std={diff34[:, 1].std():.3g}")
+
     if matched.sum() == 0:
         sys.exit()
 
