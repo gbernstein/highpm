@@ -34,22 +34,18 @@ def get_col(table, spec):
 
 
 def crossmatch_4d(pts1, pts2, tolerance):
-    """Nearest neighbor in pts2 for each row of pts1, kept unique per pts2 row (closest wins).
+    """Symmetric best match: pts1[i] <-> pts2[idx[i]] counts only if each is the
+    other's nearest neighbor (mutual NN), which is automatically one-to-one.
 
     Returns (matched_mask, idx_in_pts2, dist).
     """
-    tree = KDTree(pts2)
-    dist, idx = tree.query(pts1)
-    matched = dist < tolerance
+    dist, idx = KDTree(pts2).query(pts1)
+    dist_back, idx_back = KDTree(pts1).query(pts2)
 
-    keep = np.zeros(len(pts1), dtype=bool)
-    seen = set()
-    for i in np.argsort(dist):
-        if matched[i] and idx[i] not in seen:
-            seen.add(idx[i])
-            keep[i] = True
+    mutual = idx_back[idx] == np.arange(len(pts1))
+    matched = mutual & (dist < tolerance)
 
-    return keep, idx, dist
+    return matched, idx, dist
 
 
 if __name__ == "__main__":
@@ -57,7 +53,7 @@ if __name__ == "__main__":
         pts1 = np.array([[0, 0, 0, 0], [0.5, 0, 0, 0], [10, 10, 10, 10]])
         pts2 = np.array([[0, 0, 0, 0], [5, 5, 5, 5]])
         matched, idx, _ = crossmatch_4d(pts1, pts2, tolerance=1.0)
-        assert matched.tolist() == [True, False, False]  # row 1 loses row 0's table2 match to the closer row 0
+        assert matched.tolist() == [True, False, False]  # row 1 isn't table2 row 0's nearest neighbor, so no mutual match
         assert idx[0] == 0
         print("self-test ok")
         sys.exit()
