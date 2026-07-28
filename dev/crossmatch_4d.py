@@ -8,6 +8,9 @@ import fitsio
 import numpy as np
 from scipy.spatial import KDTree
 
+sys.path.append("/home/vwetzell/gitrepos/highpm")
+from highpm.gnomonic_converter import projectGnomonic
+
 TABLE1_FILE = "/data8/shared/decampm/R/D00485012_r_cat.fits"
 TABLE2_FILE = "/data8/shared/decampm/prev_des/r/gpr_0485012_r.fits"
 
@@ -22,7 +25,8 @@ TABLE2_COL2 = ("new_rd", 1)
 TABLE2_COL3 = ("xieta", 0)
 TABLE2_COL4 = ("xieta", 1)
 
-MATCH_TOLERANCE = 1.0  # placeholder, same units/scale as the 4 values
+MATCH_TOLERANCE = 1.0  # placeholder, arcsec (all 4 values are put on this scale)
+COL34_SCALE = 0.264  # table1 col3/col4 (pixels) -> arcsec
 
 
 def get_col(table, spec):
@@ -49,10 +53,15 @@ if __name__ == "__main__":
     t1 = fitsio.read(TABLE1_FILE)
     t2 = fitsio.read(TABLE2_FILE)
 
-    pts1 = np.vstack([t1[TABLE1_COL1], t1[TABLE1_COL2], t1[TABLE1_COL3], t1[TABLE1_COL4]]).T
-    pts2 = np.vstack(
-        [get_col(t2, TABLE2_COL1), get_col(t2, TABLE2_COL2), get_col(t2, TABLE2_COL3), get_col(t2, TABLE2_COL4)]
-    ).T
+    ra1, dec1 = t1[TABLE1_COL1], t1[TABLE1_COL2]
+    ra2, dec2 = get_col(t2, TABLE2_COL1), get_col(t2, TABLE2_COL2)
+    ra0, dec0 = np.mean(ra1), np.mean(dec1)
+
+    xi1, eta1, *_ = projectGnomonic(ra1, dec1, np.zeros_like(ra1), np.zeros_like(ra1), ra0, dec0)
+    xi2, eta2, *_ = projectGnomonic(ra2, dec2, np.zeros_like(ra2), np.zeros_like(ra2), ra0, dec0)
+
+    pts1 = np.vstack([xi1 * 3600, eta1 * 3600, t1[TABLE1_COL3] * COL34_SCALE, t1[TABLE1_COL4] * COL34_SCALE]).T
+    pts2 = np.vstack([xi2 * 3600, eta2 * 3600, get_col(t2, TABLE2_COL3), get_col(t2, TABLE2_COL4)]).T
 
     matched, idx = crossmatch_4d(pts1, pts2, MATCH_TOLERANCE)
 
