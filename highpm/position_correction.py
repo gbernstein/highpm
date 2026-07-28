@@ -116,8 +116,8 @@ def loadCoadd(filename):
         filename,
         ext=1,
         columns=[
-            "ALPHAWIN_J2000",
-            "DELTAWIN_J2000",
+            "RA",
+            "DEC",
             "MAG_AUTO_G",
             "MAG_AUTO_R",
             "MAG_AUTO_I",
@@ -267,13 +267,13 @@ def matchGPRToSkim(gprData, skimData):
 
 def matchGPRToCoadd(coaddData, joinedSkimGPRData, radius=0.5):
     coaddCoords = SkyCoord(
-        ra=coaddData["ALPHAWIN_J2000"],
-        dec=coaddData["DELTAWIN_J2000"],
+        ra=coaddData["RA"],
+        dec=coaddData["DEC"],
         unit="deg",
         frame="icrs",
     )
 
-    coaddData = rfn.drop_fields(coaddData, ["ALPHAWIN_J2000", "DELTAWIN_J2000"])
+    coaddData = rfn.drop_fields(coaddData, ["RA", "DEC"])
 
     gprCoords = SkyCoord(
         ra=joinedSkimGPRData["NEW_RA"],
