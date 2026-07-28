@@ -118,10 +118,10 @@ def loadCoadd(filename):
         columns=[
             "RA",
             "DEC",
-            "MAG_AUTO_G",
-            "MAG_AUTO_R",
-            "MAG_AUTO_I",
-            "MAG_AUTO_Z",
+            "MAG_PSF_G",
+            "MAG_PSF_R",
+            "MAG_PSF_I",
+            "MAG_PSF_Z",
         ],
     )
     header = fitsio.read_header(filename, ext=1)
@@ -351,8 +351,8 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         parY = -tmpPar[1]
 
         giColor = (
-            matchedSkimGPRCoaddData["MAG_AUTO_G"]
-            - matchedSkimGPRCoaddData["MAG_AUTO_I"]
+            matchedSkimGPRCoaddData["MAG_PSF_G"]
+            - matchedSkimGPRCoaddData["MAG_PSF_I"]
         )
 
         new_ra = matchedSkimGPRCoaddData["NEW_RA"]
