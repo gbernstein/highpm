@@ -60,14 +60,20 @@ if __name__ == "__main__":
     xi1, eta1, *_ = projectGnomonic(ra1, dec1, np.zeros_like(ra1), np.zeros_like(ra1), ra0, dec0)
     xi2, eta2, *_ = projectGnomonic(ra2, dec2, np.zeros_like(ra2), np.zeros_like(ra2), ra0, dec0)
 
-    pts1 = np.vstack([xi1 * 3600, eta1 * 3600, t1[TABLE1_COL3] * COL34_SCALE, t1[TABLE1_COL4] * COL34_SCALE]).T
-    pts2 = np.vstack([xi2 * 3600, eta2 * 3600, get_col(t2, TABLE2_COL3), get_col(t2, TABLE2_COL4)]).T
+    two_d = "--2d" in sys.argv
+
+    if two_d:
+        pts1 = np.vstack([xi1 * 3600, eta1 * 3600]).T
+        pts2 = np.vstack([xi2 * 3600, eta2 * 3600]).T
+    else:
+        pts1 = np.vstack([xi1 * 3600, eta1 * 3600, t1[TABLE1_COL3] * COL34_SCALE, t1[TABLE1_COL4] * COL34_SCALE]).T
+        pts2 = np.vstack([xi2 * 3600, eta2 * 3600, get_col(t2, TABLE2_COL3), get_col(t2, TABLE2_COL4)]).T
 
     matched, idx, dist = crossmatch_4d(pts1, pts2, MATCH_TOLERANCE)
 
     print(f"Table1 rows: {len(pts1)}")
     print(f"Table2 rows: {len(pts2)}")
-    print(f"Nearest-neighbor 4D distance (arcsec): min={dist.min():.3g} median={np.median(dist):.3g}")
+    print(f"Nearest-neighbor {'2D' if two_d else '4D'} distance (arcsec): min={dist.min():.3g} median={np.median(dist):.3g}")
     print(f"Matched (< {MATCH_TOLERANCE} arcsec): {matched.sum()}")
 
     if matched.sum() == 0:
@@ -79,7 +85,8 @@ if __name__ == "__main__":
     matched_pts2 = pts2[idx[matched]]
 
     rms_12 = np.sqrt(np.mean(np.sum((matched_pts1[:, :2] - matched_pts2[:, :2]) ** 2, axis=1)))
-    rms_34 = np.sqrt(np.mean(np.sum((matched_pts1[:, 2:] - matched_pts2[:, 2:]) ** 2, axis=1)))
-
     print(f"RMS separation (col1, col2): {rms_12}")
-    print(f"RMS separation (col3, col4): {rms_34}")
+
+    if not two_d:
+        rms_34 = np.sqrt(np.mean(np.sum((matched_pts1[:, 2:] - matched_pts2[:, 2:]) ** 2, axis=1)))
+        print(f"RMS separation (col3, col4): {rms_34}")
