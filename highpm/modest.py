@@ -187,9 +187,32 @@ def new_modest_fitter(cat, fitter, config):
 
     modest_groups = [i for i in modest_groups if len(i) >= config["n_detections"]]
 
+    # new_modest_mover's DBSCAN distance matrix is O(group_size^4) (it's built
+    # over all pairs-of-pairs within the group). With `cores` workers running
+    # concurrently, several large groups landing in flight at once can spike
+    # aggregate memory well past what any single group needs (observed: 32
+    # workers x ~1.5GB for 166-detection groups -> OOM). Run large groups in
+    # their own pass with far fewer concurrent workers to bound that spike.
+    large_threshold = config["modest"].get("large_group_size", 100)
+    cores_divisor = config["modest"].get("large_group_cores_divisor", 4)
+
+    small_groups = [g for g in modest_groups if len(g) < large_threshold]
+    large_groups = [g for g in modest_groups if len(g) >= large_threshold]
+
     partial_new_modest_mover = partial(new_modest_mover, mode="modest")
 
-    modest_pm_ls = multithreader(partial_new_modest_mover, modest_groups, cat, config)
+    modest_pm_ls = multithreader(partial_new_modest_mover, small_groups, cat, config)
+
+    if large_groups:
+        large_cores = max(1, config["cores"] // cores_divisor)
+        print(
+            f"{len(large_groups)} large modest groups (>= {large_threshold} "
+            f"detections); running with {large_cores} cores."
+        )
+        large_config = dict(config, cores=large_cores)
+        modest_pm_ls += multithreader(
+            partial_new_modest_mover, large_groups, cat, large_config
+        )
 
     modest_pm_ls = [i for i in modest_pm_ls if i is not None]
     modest_pm_obj = []

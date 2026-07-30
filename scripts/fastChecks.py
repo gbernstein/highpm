@@ -41,7 +41,7 @@ from highpm.pmfit import fit5d
 FASTCHECK_COLUMNS = [
     "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
     "ERRAWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
-    "MAG_AUTO_G", "MAG_AUTO_R", "MAG_AUTO_I", "MAG_AUTO_Z",
+    "MAG_PSF_G", "MAG_PSF_R", "MAG_PSF_I", "MAG_PSF_Z",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
 ]
 
@@ -63,6 +63,7 @@ def _validate_config(config: dict):
             "time_sep",
             "minSeasons",
             "chisqClip",
+            "reducedChisqMax",
             "parallax_prior",
             "color_prior",
             "colorFrac",
@@ -185,6 +186,7 @@ def run_fast_checks(
         time_sep=fit_cfg["time_sep"],
         minSeasons=fit_cfg["minSeasons"],
         chisqClip=fit_cfg["chisqClip"],
+        reducedChisqMax=fit_cfg["reducedChisqMax"],
         parallax_prior=fit_cfg["parallax_prior"],
         color_prior=fit_cfg["color_prior"],
         colorFrac=fit_cfg["colorFrac"],

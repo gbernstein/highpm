@@ -13,6 +13,31 @@ from .utils import arborist, filter_list, new_posvel
 # =============================================================================
 
 
+def _chunked_pairs(tree, r, batch_size, workers=1):
+    """Stream index pairs (i < j) within radius r of a KDTree's own points, a
+    batch of query points at a time.
+
+    tree.query_pairs(r) materializes every pair in the dense field at once
+    (tens of GB before any downstream filtering) -- this yields the same
+    pairs in bounded-size chunks so a caller can filter/discard each batch
+    before moving on.
+    """
+    n = tree.n
+    for start in range(0, n, batch_size):
+        stop = min(start + batch_size, n)
+        neighbor_lists = tree.query_ball_point(
+            tree.data[start:stop], r=r, workers=workers
+        )
+        counts = np.fromiter((len(nb) for nb in neighbor_lists), dtype=np.int64, count=stop - start)
+        if counts.sum() == 0:
+            continue
+        i_idx = np.repeat(np.arange(start, stop), counts)
+        j_idx = np.concatenate(neighbor_lists)
+        mask = j_idx > i_idx
+        if np.any(mask):
+            yield i_idx[mask], j_idx[mask]
+
+
 def cleanOverlapping(partition, fast_candidates, config):
     partition_candidates = [
         fast_candidates[partition[i]] for i in range(len(partition))
@@ -116,40 +141,69 @@ def fast_movers(cat, fitter, config):
     cov_xy = err2cov(cat, additional_error=False)
 
     fast_tree = arborist(x, y)
-    fast_pairs = fast_tree.query_pairs(r=config["fast"]["pairlength"])
-    fast_pairs = np.array(list(fast_pairs))
 
-    if len(fast_pairs) == 0:
+    # ponytail: process query points in batches so we never hold every raw
+    # pair from the dense field in memory -- only pairs that survive the
+    # min_sep/max_sep proper-motion cut (a small fraction) are accumulated.
+    batch_size = config["fast"].get("pair_batch_size", 20_000)
+    workers = config.get("cores", 1)
+
+    pairs_kept, posvel_kept, cov_kept = [], [], []
+    for i_idx, j_idx in _chunked_pairs(
+        fast_tree, config["fast"]["pairlength"], batch_size, workers=workers
+    ):
+        pairs = np.stack([i_idx, j_idx], axis=1)
+        posvel, cov_batch, dt, good_pairs = new_posvel(pairs, x, y, t, cov_xy, config)
+        pairs = pairs[good_pairs]
+
+        # A short dt gives a huge cov_vx ~ err^2/dt^2 (new_posvel), which makes
+        # the pair's Mahalanobis distance to *everything* forgiving in stage 2
+        # -- min_dt was declared as required config but never actually enforced,
+        # letting short-baseline pairs act as universal connectors.
+        keep = (dt >= config["fast"]["min_dt"]) & np.logical_and(
+            np.hypot(posvel[:, 2], posvel[:, 3]) > config["fast"]["min_sep"],
+            np.hypot(posvel[:, 2], posvel[:, 3]) < config["fast"]["max_sep"],
+        )
+        if np.any(keep):
+            pairs_kept.append(pairs[keep])
+            posvel_kept.append(posvel[keep])
+            cov_kept.append(cov_batch[keep])
+
+    if not pairs_kept:
         # ponytail: no pairs (empty/sparse catalog) -> no fast movers, nothing to fit
         return []
 
-    fast_posvel, cov, _, good_pairs = new_posvel(fast_pairs, x, y, t, cov_xy, config)
-
-    fast_pairs = fast_pairs[good_pairs]
-
-    pm_keep = np.logical_and(
-        np.hypot(fast_posvel[:, 2], fast_posvel[:, 3]) > config["fast"]["min_sep"],
-        np.hypot(fast_posvel[:, 2], fast_posvel[:, 3]) < config["fast"]["max_sep"],
-    )
-    fast_pairs = fast_pairs[pm_keep]
-    cov = cov[pm_keep]
-    fast_posvel = fast_posvel[pm_keep]
+    fast_pairs = np.concatenate(pairs_kept)
+    fast_posvel = np.concatenate(posvel_kept)
+    cov = np.concatenate(cov_kept)
+    print(f"fast_movers: {len(fast_pairs)} candidate pairs after pm cut", flush=True)
 
     fast_4dtree = spspace.KDTree(fast_posvel)
 
-    fast_4dpairs = np.array(
-        list(fast_4dtree.query_pairs(r=config["fast"]["linklength"]))
-    )
+    # Same rationale as the 2D pairing above: query_pairs() over the full 4D
+    # posvel space can still be huge before the eps cut, so stream it in
+    # batches and keep only pairs that pass the (much tighter) eps threshold.
+    i_kept, j_kept, D_kept = [], [], []
+    for i_batch, j_batch in _chunked_pairs(
+        fast_4dtree, config["fast"]["linklength"], batch_size, workers=workers
+    ):
+        diff = fast_posvel[j_batch] - fast_posvel[i_batch]
+        invcov = 1.0 / (cov[i_batch] + cov[j_batch])
+        dist = np.sqrt(np.sum(diff * invcov * diff, axis=1))
 
-    diff = fast_posvel[fast_4dpairs[:, 1]] - fast_posvel[fast_4dpairs[:, 0]]
-    invcov = 1.0 / (cov[fast_4dpairs[:, 0]] + cov[fast_4dpairs[:, 1]])
+        mask = dist < config["fast"]["eps"]
+        if np.any(mask):
+            i_kept.append(i_batch[mask])
+            j_kept.append(j_batch[mask])
+            D_kept.append(dist[mask])
 
-    dist2 = np.sum(diff * invcov * diff, axis=1)
-    dist = np.sqrt(dist2)
+    if not i_kept:
+        return []
 
-    mask = dist < config["fast"]["eps"]
-    i_idx, j_idx = fast_4dpairs[mask].T
-    D = dist[mask]
+    i_idx = np.concatenate(i_kept)
+    j_idx = np.concatenate(j_kept)
+    D = np.concatenate(D_kept)
+    print(f"fast_movers: {len(i_idx)} candidate pairs after eps cut", flush=True)
 
     rows = np.concatenate([i_idx, j_idx])
     cols = np.concatenate([j_idx, i_idx])
@@ -255,3 +309,20 @@ def fast_movers(cat, fitter, config):
 
     fast_pm_arr = multi_fit5d(fitter, fast_pm_obj, cat, config)
     return fast_pm_arr
+
+
+if __name__ == "__main__":
+    # _chunked_pairs must return the same pairs as query_pairs, in any order,
+    # regardless of batch size.
+    rng = np.random.default_rng(0)
+    pts = rng.uniform(0, 100, size=(500, 2))
+    tree = arborist(pts[:, 0], pts[:, 1])
+    r = 8.0
+
+    expected = {tuple(sorted(p)) for p in tree.query_pairs(r)}
+    for batch_size in (1, 7, 500, 10_000):
+        got = set()
+        for i_idx, j_idx in _chunked_pairs(tree, r, batch_size):
+            got.update(zip(i_idx.tolist(), j_idx.tolist()))
+        assert got == expected, (batch_size, len(got), len(expected))
+    print("_chunked_pairs self-check OK")

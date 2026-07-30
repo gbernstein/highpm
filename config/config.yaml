@@ -13,16 +13,19 @@ chunksize: 1000 # Size of chunks for parallel processing
 n_modests: 3 # Number of modest proper motion iterations to perform
 
 modest:
-  linklength: 1.5 # Maximum link length in arcseconds
+  linklength: 0.5 # Maximum link length in arcseconds
   min_dt: 0.8 # Minimum time difference in years
   eps: 5.0 # DBSCAN epsilon value
   min_pairs: 4 # Minimum number of pairs to consider a group
   shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
+  large_group_size: 100 # Groups with >= this many detections are fit in a separate, less-parallel pass
+  large_group_cores_divisor: 4 # cores // this value = worker count for the large-group pass
 
 pm_lim: 5000 # Maximum proper motion in mas/yr for removal
 pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal
 
 fast:
+  pair_batch_size: 20000 # Query points per batch when streaming candidate pairs (memory vs. speed)
   pairlength: 60.0 # Maximum pair length in arcseconds
   linklength: 5.0 # Maximum link length in arcseconds
   min_pairs: 4 # Minimum number of pairs to consider a group
@@ -55,7 +58,8 @@ fitting:
   time_sep: 1.5 # Minimum time separation in years
   minSeasons: 3 # Minimum number of distinct seasons with detections
   t_season: 0.25 # Minimum time separation to consider a new season in years
-  chisqClip: 11.0 # Chi-squared clipping threshold
+  chisqClip: 11.0 # Per-point chi-squared (2 dof) clipping threshold
+  reducedChisqMax: 3.0 # Max accepted reduced chi-squared (chisqTotal/dof) for overall fit
   parallax_prior: 0.15 # Parallax prior in "
   color_prior: 3.0 # Color prior in mag
   colorFrac: 0.9 # Required color fraction to use coadd color

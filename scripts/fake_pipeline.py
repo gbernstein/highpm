@@ -20,7 +20,7 @@ import healpy as hp
 import numpy as np
 
 from scripts.PM import run_pm, select_hp
-from highpm.cat_reader import read_cat_header
+from highpm.cat_reader import clean_cat, read_cat_header
 from highpm.fake_star import generate_fake_star_catalog
 from highpm.fake_detections import generate_fake_detections
 
@@ -32,7 +32,12 @@ DET_PER_STAR = 15.0
 
 
 def default_density(n_real, nside):
-    """Fake-star density (stars/deg^2) giving ~1/8 the real detection density."""
+    """Fake-star density (stars/deg^2) giving ~1/8 the real detection density.
+
+    n_real should be the count *after* clean_cat, not the raw row count --
+    clean_cat rejects the majority of rows (FLAGS/IMAFLAGS_ISO/SPREAD_MODEL),
+    so a raw-row-count input overstates the real detection density target.
+    """
     real_det_density = n_real / hp.nside2pixarea(nside, degrees=True)
     return real_det_density / 8.0 / DET_PER_STAR
 
@@ -97,9 +102,15 @@ def main():
     if "fake" in runs or "overlay" in runs:
         density = args.density
         if density is None:
-            n_real = fitsio.FITS(catalog)[1].get_nrows()
+            # Density target is "~1/8 the real DETECTION density" -- use the count
+            # after clean_cat, not the raw row count, or a target based on the raw
+            # count is inflated by however many rows clean_cat would have rejected.
+            clean_cols = fitsio.read(
+                catalog, columns=["FLAGS", "IMAFLAGS_ISO", "SPREAD_MODEL", "SPREADERR_MODEL"], ext=1
+            )
+            n_real = int(np.sum(clean_cat(clean_cols)))
             density = default_density(n_real, nside)
-            print(f"Auto fake-star density: {density:.0f}/deg^2 (~1/8 real det density)")
+            print(f"Auto fake-star density: {density:.0f}/deg^2 (~1/8 cleaned real det density)")
         star_cat = f"{base}fake_stars_hp{healpix:05d}.fits"
         generate_fake_star_catalog(density, healpix, nside, star_cat)
         generate_fake_detections(star_cat, catalog, healpix, nside, fake_det)
@@ -130,9 +141,9 @@ def _self_test():
         pass
     else:
         raise AssertionError("parse_runs should reject unknown runs")
-    # ~4.48M real dets in an nside=32 pixel -> ~1/8 real det density in fake dets.
-    d = default_density(4_477_687, 32)
-    assert 9000 < d < 13000, d
+    # ~2.81M cleaned real dets in hp09413 (nside=32) -> ~1/8 real det density in fake dets.
+    d = default_density(2_807_296, 32)
+    assert 6000 < d < 8000, d
     print("self-test OK")
     return 0
 

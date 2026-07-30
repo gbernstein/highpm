@@ -363,6 +363,17 @@ def generate_fake_detections(
     print("Detections after completeness:", np.sum(completeness_mask))
     print("Detections inside FOV:", np.sum(fov_masks))
     print("Final detections:", np.sum(mask))
+    per_star = mask.sum(axis=1)
+    print(
+        "Per-star detection count: mean=%.2f median=%d max=%d p95=%d p99=%d"
+        % (
+            per_star.mean(),
+            np.median(per_star),
+            per_star.max(),
+            np.percentile(per_star, 95),
+            np.percentile(per_star, 99),
+        )
+    )
 
     # import matplotlib.pyplot as plt
 
@@ -394,10 +405,10 @@ def generate_fake_detections(
             ("ERRAWIN_WORLD", ">f4"),
             ("XWIN_IMAGE", ">f4"),
             ("YWIN_IMAGE", ">f4"),
-            ("MAG_AUTO_G", ">f4"),
-            ("MAG_AUTO_R", ">f4"),
-            ("MAG_AUTO_I", ">f4"),
-            ("MAG_AUTO_Z", ">f4"),
+            ("MAG_PSF_G", ">f4"),
+            ("MAG_PSF_R", ">f4"),
+            ("MAG_PSF_I", ">f4"),
+            ("MAG_PSF_Z", ">f4"),
             ("MJD", ">f8"),
             ("PAR_XI", ">f8"),
             ("PAR_ETA", ">f8"),
@@ -415,6 +426,12 @@ def generate_fake_detections(
             ("DETA_DCOLOR", ">f8"),
         ]
     )
+
+    # Debug/verification only: ground-truth origin star for each detection row,
+    # in the same row order as fake_detections (mask flattens row-major, so this
+    # matches `np.repeat(arange(n_stars), per_star)`).
+    star_id = np.repeat(np.arange(len(fake_stars)), per_star)
+    np.save(output_file + ".star_id.npy", star_id)
 
     fake_detections = np.zeros(np.sum(mask), dtype=dtype)
 
@@ -436,16 +453,16 @@ def generate_fake_detections(
     fake_detections["ERRAWIN_WORLD"] = errors[:, band_idx][mask]
     fake_detections["XWIN_IMAGE"] = 0.0
     fake_detections["YWIN_IMAGE"] = 0.0
-    fake_detections["MAG_AUTO_G"] = np.repeat(
+    fake_detections["MAG_PSF_G"] = np.repeat(
         fake_stars["g_mag"][:, np.newaxis], len(unique_observations), axis=1
     )[mask]
-    fake_detections["MAG_AUTO_R"] = np.repeat(
+    fake_detections["MAG_PSF_R"] = np.repeat(
         fake_stars["r_mag"][:, np.newaxis], len(unique_observations), axis=1
     )[mask]
-    fake_detections["MAG_AUTO_I"] = np.repeat(
+    fake_detections["MAG_PSF_I"] = np.repeat(
         fake_stars["i_mag"][:, np.newaxis], len(unique_observations), axis=1
     )[mask]
-    fake_detections["MAG_AUTO_Z"] = np.repeat(
+    fake_detections["MAG_PSF_Z"] = np.repeat(
         fake_stars["z_mag"][:, np.newaxis], len(unique_observations), axis=1
     )[mask]
     fake_detections["MJD"] = np.repeat(

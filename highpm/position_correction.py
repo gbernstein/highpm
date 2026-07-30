@@ -17,6 +17,7 @@ from highpm.gnomonic_converter import projectGnomonic
 
 MIN_ID_MATCH_FRACTION = 0.5  # below this (or on a join_by error), fall back to RA/Dec matching
 POSITION_MATCH_TOLERANCE = 1.0  # arcsec, for the RA/Dec fallback match
+COLOR_DERIVATIVE_STEP = 0.01  # mag, full width of the symmetric finite-difference step
 
 
 def loadSkim(filename):
@@ -100,6 +101,9 @@ def loadGPR(filename):
         newData["CCDNUM"] = -1
     newData["NEW_RA"] = data["new_rd"][:, 0]
     newData["NEW_DEC"] = data["new_rd"][:, 1]
+    # cov_model lives in the same tangent-plane (xieta) basis as uv_model, in
+    # arcsec**2, not degrees**2 -- so despite the RA/DEC-flavored name, these
+    # are arcsec, and downstream code (pmfit.err2cov) uses them as such.
     newData["NEW_RA_ERR"] = np.sqrt(data["cov_model"][:, 0, 0])
     newData["NEW_DEC_ERR"] = np.sqrt(data["cov_model"][:, 1, 1])
     newData["HAS_UNIQUE_COLOR"] = data["has_color"]
@@ -355,6 +359,14 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
             - matchedSkimGPRCoaddData["MAG_PSF_I"]
         )
 
+        # matchGPRToCoadd sets MAG_PSF_* to -99.0 when a detection has no coadd
+        # match within its radius; giColor is meaningless there (-99 - -99 = 0),
+        # so those rows must fall back to new_rd for BEST_RA/DEC, and the color
+        # derivative below is centered on defaultColor instead of giColor.
+        noCoaddMatch = matchedSkimGPRCoaddData["MAG_PSF_G"] == -99.0
+        useNewRD = matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"] | noCoaddMatch
+        centerColor = np.where(noCoaddMatch, defaultColor, giColor)
+
         new_ra = matchedSkimGPRCoaddData["NEW_RA"]
         new_dec = matchedSkimGPRCoaddData["NEW_DEC"]
 
@@ -363,8 +375,8 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         ywin = np.empty(n, dtype="f8")
         bestRA = np.empty(n, dtype="f8")
         bestDEC = np.empty(n, dtype="f8")
-        shiftRA = np.empty(n, dtype="f8")
-        shiftDEC = np.empty(n, dtype="f8")
+        dRAdColor = np.empty(n, dtype="f8")
+        dDECdColor = np.empty(n, dtype="f8")
 
         # One WCS per CCD: transform each CCD's whole row group at once instead
         # of calling toPix/toSky per detection.
@@ -376,17 +388,22 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
 
             x, y = wcs.toPix(new_ra[iUse], new_dec[iUse], c=defaultColor)
             bra, bdec = wcs.toSky(x, y, c=giColor[iUse])
-            sra, sdec = wcs.toSky(x, y, c=defaultColor - 1.0)
+
+            # Exact color derivative at each detection's own center color: a
+            # small symmetric step, rather than a 1-mag secant, so the slope
+            # reflects the local (possibly curved, e.g. DCR) color response
+            # instead of averaging over several tabulated segments.
+            cPlus = centerColor[iUse] + COLOR_DERIVATIVE_STEP / 2.0
+            cMinus = centerColor[iUse] - COLOR_DERIVATIVE_STEP / 2.0
+            raPlus, decPlus = wcs.toSky(x, y, c=cPlus)
+            raMinus, decMinus = wcs.toSky(x, y, c=cMinus)
 
             xwin[iUse] = x
             ywin[iUse] = y
             bestRA[iUse] = bra
             bestDEC[iUse] = bdec
-            shiftRA[iUse] = sra
-            shiftDEC[iUse] = sdec
-
-        dRAdColor = matchedSkimGPRCoaddData["NEW_RA"] - shiftRA
-        dDECdColor = matchedSkimGPRCoaddData["NEW_DEC"] - shiftDEC
+            dRAdColor[iUse] = (raPlus - raMinus) / COLOR_DERIVATIVE_STEP
+            dDECdColor[iUse] = (decPlus - decMinus) / COLOR_DERIVATIVE_STEP
 
         tempData["MJD"] = mjd
         tempData["PAR_XI"] = parX
@@ -394,15 +411,18 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         tempData["NEW_XWIN_IMAGE"] = xwin
         tempData["NEW_YWIN_IMAGE"] = ywin
         tempData["BEST_RA"] = np.where(
-            matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"],
+            useNewRD,
             matchedSkimGPRCoaddData["NEW_RA"],
             bestRA,
         )
         tempData["BEST_DEC"] = np.where(
-            matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"],
+            useNewRD,
             matchedSkimGPRCoaddData["NEW_DEC"],
             bestDEC,
         )
+        # HAS_UNIQUE_COLOR rows already used the star's own known color in the
+        # GPR fit, so there's no remaining color ambiguity to model. noCoaddMatch
+        # rows still get a real (nonzero) derivative, centered on defaultColor.
         tempData["DRA_DCOLOR"] = np.where(
             matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"], 0.0, dRAdColor
         )

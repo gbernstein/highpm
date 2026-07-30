@@ -231,6 +231,7 @@ def fit5d(
     cat,
     time_sep=1.8,
     chisqClip=11.0,
+    reducedChisqMax=3.0,
     parallax_prior=1e-5,
     color_prior=5.0,
     mjd_ref=57388.0,
@@ -254,7 +255,11 @@ def fit5d(
     time_sep : float, optional
         Minimum time span (in years) required for a valid fit. Default is 1.8.
     chisqClip : float, optional
-        Chi-squared threshold for outlier rejection. Default is 11.0.
+        Per-point chi-squared (2 dof) threshold for iterative outlier
+        rejection. Default is 11.0.
+    reducedChisqMax : float, optional
+        Maximum accepted reduced chi-squared (chisqTotal / dof) for the
+        overall fit, checked after outlier clipping stops. Default is 3.0.
     parallax_prior : float, optional
         Prior on parallax parameter. Default is 1e-5.
     color_prior : float, optional
@@ -415,11 +420,11 @@ def fit5d(
 
             chisqTotal = np.sum(chisq)
             dof = 2 * xy.shape[0] - 5
-            if chisqTotal / dof < chisqClip and (max(t) - min(t)) > time_sep:
-                g_mag, mag_mode_n = sps.mode(temp_cat["MAG_AUTO_G"])
-                r_mag = sps.mode(temp_cat["MAG_AUTO_R"])[0]
-                i_mag = sps.mode(temp_cat["MAG_AUTO_I"])[0]
-                z_mag = sps.mode(temp_cat["MAG_AUTO_Z"])[0]
+            if chisqTotal / dof < reducedChisqMax and (max(t) - min(t)) > time_sep:
+                g_mag, mag_mode_n = sps.mode(temp_cat["MAG_PSF_G"])
+                r_mag = sps.mode(temp_cat["MAG_PSF_R"])[0]
+                i_mag = sps.mode(temp_cat["MAG_PSF_I"])[0]
+                z_mag = sps.mode(temp_cat["MAG_PSF_Z"])[0]
 
                 color = g_mag - i_mag
                 color_err = 0.0

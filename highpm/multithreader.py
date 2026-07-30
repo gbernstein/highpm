@@ -94,6 +94,8 @@ def multi_fit5d(fitter, detections_groups, cat, config):
                 Time separation threshold for fitting.
             - 'chisqClip': float
                 Chi-squared clipping threshold for fitting.
+            - 'reducedChisqMax': float
+                Maximum accepted reduced chi-squared for overall fit acceptance.
             - 'parallax_prior': float
                 Parallax prior value for fitting.
             - 'color_prior': float
@@ -116,6 +118,7 @@ def multi_fit5d(fitter, detections_groups, cat, config):
         "chunksize",
         "time_sep",
         "chisqClip",
+        "reducedChisqMax",
         "parallax_prior",
         "color_prior",
         "colorFrac",
@@ -131,6 +134,7 @@ def multi_fit5d(fitter, detections_groups, cat, config):
         fitter,
         time_sep=config["fitting"]["time_sep"],
         chisqClip=config["fitting"]["chisqClip"],
+        reducedChisqMax=config["fitting"]["reducedChisqMax"],
         parallax_prior=config["fitting"]["parallax_prior"],
         color_prior=config["fitting"]["color_prior"],
         colorFrac=config["fitting"]["colorFrac"],

@@ -35,7 +35,7 @@ from highpm.utils import detections_for_removal
 PM_COLUMNS = [
     "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
     "ERRAWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
-    "MAG_AUTO_G", "MAG_AUTO_R", "MAG_AUTO_I", "MAG_AUTO_Z",
+    "MAG_PSF_G", "MAG_PSF_R", "MAG_PSF_I", "MAG_PSF_Z",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
     "FLAGS", "IMAFLAGS_ISO",
 ]
@@ -59,6 +59,7 @@ def _validate_config(config: dict):
             "time_sep",
             "minSeasons",
             "chisqClip",
+            "reducedChisqMax",
             "parallax_prior",
             "color_prior",
             "colorFrac",
@@ -116,6 +117,7 @@ def run_pm(
         minSeasons=fitting["minSeasons"],
         t_season=fitting["t_season"],
         chisqClip=fitting["chisqClip"],
+        reducedChisqMax=fitting["reducedChisqMax"],
         parallax_prior=fitting["parallax_prior"],
         color_prior=fitting["color_prior"],
         colorFrac=fitting["colorFrac"],

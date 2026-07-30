@@ -221,6 +221,9 @@ def insert_movers(pm_arr, file, mtype, config):
         )[0][0]
         print(f"Overwriting existing {mtype}_movers extension.")
         file[extnum].write(tbl)
+        # fitsio's write() doesn't shrink an existing extension -- if the new
+        # table has fewer rows, the old tail rows are silently left in place.
+        file[extnum].resize(len(tbl))
     else:
         file.write_table(tbl, extname=mtype + "_movers")
     return tbl
@@ -260,6 +263,7 @@ def insert_detections(pm_arr, detections_idx, file, mtype):
         )[0][0]
         print(f"Overwriting existing {mtype}_detections extension.")
         file[extnum].write(detection_tbl)
+        file[extnum].resize(len(detection_tbl))
     else:
         file.write_table(detection_tbl, extname=mtype + "_detections")
 
