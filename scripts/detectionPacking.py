@@ -155,7 +155,7 @@ if __name__ == "__main__":
     )
 
     detection_files = sorted(
-        glob(os.path.join(args.detection_path, "[griz]/position_corrected_*.fits"))
+        glob(os.path.join(args.detection_path, "position_corrected_*.fits"))
     )
     if len(detection_files) == 0:
         print(f"No detection files found in {args.detection_path}")
