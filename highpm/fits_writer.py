@@ -65,24 +65,12 @@ def insert_movers(pm_arr, file, mtype, config):
         ("c_vxvy", "f8"),
         ("c_vxpi", "f8"),
         ("c_vypi", "f8"),
-        ("g_mag", "f8"),
-        ("r_mag", "f8"),
-        ("i_mag", "f8"),
-        ("z_mag", "f8"),
         ("g_n", "i4"),
         ("r_n", "i4"),
         ("i_n", "i4"),
         ("z_n", "i4"),
         ("color", "f8"),
         ("color_err", "f8"),
-        ("g_spread", "f8"),
-        ("r_spread", "f8"),
-        ("i_spread", "f8"),
-        ("z_spread", "f8"),
-        ("g_spread_err", "f8"),
-        ("r_spread_err", "f8"),
-        ("i_spread_err", "f8"),
-        ("z_spread_err", "f8"),
     ]
 
     idx = range(len(pm_arr))
@@ -136,28 +124,13 @@ def insert_movers(pm_arr, file, mtype, config):
     members = pm_arr[:, 6]
     clipped = pm_arr[:, 7]
 
-    g_mag = np.array(pm_arr[:, 8], dtype=np.float64)
-    r_mag = np.array(pm_arr[:, 9], dtype=np.float64)
-    i_mag = np.array(pm_arr[:, 10], dtype=np.float64)
-    z_mag = np.array(pm_arr[:, 11], dtype=np.float64)
+    color = np.array(pm_arr[:, 8], dtype=np.float64)
+    color_err = np.array(pm_arr[:, 9], dtype=np.float64)
 
-    color = np.array(pm_arr[:, 12], dtype=np.float64)
-    color_err = np.array(pm_arr[:, 13], dtype=np.float64)
-
-    g_n = np.array(pm_arr[:, 14], dtype=np.float64)
-    r_n = np.array(pm_arr[:, 15], dtype=np.float64)
-    i_n = np.array(pm_arr[:, 16], dtype=np.float64)
-    z_n = np.array(pm_arr[:, 17], dtype=np.float64)
-
-    g_spread = np.array(pm_arr[:, 18], dtype=np.float64)
-    r_spread = np.array(pm_arr[:, 19], dtype=np.float64)
-    i_spread = np.array(pm_arr[:, 20], dtype=np.float64)
-    z_spread = np.array(pm_arr[:, 21], dtype=np.float64)
-
-    g_spread_err = np.array(pm_arr[:, 22], dtype=np.float64)
-    r_spread_err = np.array(pm_arr[:, 23], dtype=np.float64)
-    i_spread_err = np.array(pm_arr[:, 24], dtype=np.float64)
-    z_spread_err = np.array(pm_arr[:, 25], dtype=np.float64)
+    g_n = np.array(pm_arr[:, 10], dtype=np.float64)
+    r_n = np.array(pm_arr[:, 11], dtype=np.float64)
+    i_n = np.array(pm_arr[:, 12], dtype=np.float64)
+    z_n = np.array(pm_arr[:, 13], dtype=np.float64)
 
     data = [
         idx,
@@ -188,24 +161,12 @@ def insert_movers(pm_arr, file, mtype, config):
         c_vxvy,
         c_vxpi,
         c_vypi,
-        g_mag,
-        r_mag,
-        i_mag,
-        z_mag,
         g_n,
         r_n,
         i_n,
         z_n,
         color,
         color_err,
-        g_spread,
-        r_spread,
-        i_spread,
-        z_spread,
-        g_spread_err,
-        r_spread_err,
-        i_spread_err,
-        z_spread_err,
     ]
 
     tbl = np.zeros(len(idx), dtype=column_dtypes)

@@ -392,9 +392,10 @@ def generate_fake_detections(
             ("CCDNUM", ">i4"),
             ("NEW_RA", ">f8"),
             ("NEW_DEC", ">f8"),
-            ("NEW_RA_ERR", ">f8"),
-            ("NEW_DEC_ERR", ">f8"),
-            ("HAS_UNIQUE_COLOR", "i1"),
+            ("BEST_RA_ERR", ">f8"),
+            ("BEST_DEC_ERR", ">f8"),
+            ("COLOR_SOURCE", "i1"),
+            ("COLOR", ">f8"),
             ("BAND", "<U1"),
             ("FLAGS", ">i2"),
             ("FLUX_AUTO", ">f4"),
@@ -405,10 +406,6 @@ def generate_fake_detections(
             ("ERRAWIN_WORLD", ">f4"),
             ("XWIN_IMAGE", ">f4"),
             ("YWIN_IMAGE", ">f4"),
-            ("MAG_PSF_G", ">f4"),
-            ("MAG_PSF_R", ">f4"),
-            ("MAG_PSF_I", ">f4"),
-            ("MAG_PSF_Z", ">f4"),
             ("MJD", ">f8"),
             ("PAR_XI", ">f8"),
             ("PAR_ETA", ">f8"),
@@ -438,9 +435,8 @@ def generate_fake_detections(
     fake_detections["OBJECT_NUMBER"] = np.arange(np.sum(mask))
     fake_detections["NEW_RA"] = ra_detections[mask]
     fake_detections["NEW_DEC"] = dec_detections[mask]
-    fake_detections["NEW_RA_ERR"] = np.sqrt(2) * 0.005
-    fake_detections["NEW_DEC_ERR"] = np.sqrt(2) * 0.005
-    fake_detections["HAS_UNIQUE_COLOR"] = 1
+    fake_detections["BEST_RA_ERR"] = np.sqrt(2) * 0.005
+    fake_detections["BEST_DEC_ERR"] = np.sqrt(2) * 0.005
     fake_detections["BAND"] = np.repeat(
         unique_observations["BAND"][np.newaxis, :], len(fake_stars), axis=0
     )[mask]
@@ -453,17 +449,13 @@ def generate_fake_detections(
     fake_detections["ERRAWIN_WORLD"] = errors[:, band_idx][mask]
     fake_detections["XWIN_IMAGE"] = 0.0
     fake_detections["YWIN_IMAGE"] = 0.0
-    fake_detections["MAG_PSF_G"] = np.repeat(
-        fake_stars["g_mag"][:, np.newaxis], len(unique_observations), axis=1
-    )[mask]
-    fake_detections["MAG_PSF_R"] = np.repeat(
-        fake_stars["r_mag"][:, np.newaxis], len(unique_observations), axis=1
-    )[mask]
-    fake_detections["MAG_PSF_I"] = np.repeat(
-        fake_stars["i_mag"][:, np.newaxis], len(unique_observations), axis=1
-    )[mask]
-    fake_detections["MAG_PSF_Z"] = np.repeat(
-        fake_stars["z_mag"][:, np.newaxis], len(unique_observations), axis=1
+    # Fakes are injected with a known g-i color, so mark them the same as a
+    # real detection whose GPR fit used its own known color (system 0: g-i).
+    fake_detections["COLOR_SOURCE"] = 0
+    fake_detections["COLOR"] = np.repeat(
+        (fake_stars["g_mag"] - fake_stars["i_mag"])[:, np.newaxis],
+        len(unique_observations),
+        axis=1,
     )[mask]
     fake_detections["MJD"] = np.repeat(
         unique_observations["MJD"][np.newaxis, :], len(fake_stars), axis=0

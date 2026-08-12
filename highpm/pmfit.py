@@ -152,7 +152,7 @@ def err2cov(temp_cat, additional_error=False):
     ----------
     temp_cat : np.ndarray
         Input catalog containing error ellipse parameters. Must contain the
-        columns 'ERRAWIN_WORLD', 'NEW_RA_ERR', and 'NEW_DEC_ERR'.
+        columns 'ERRAWIN_WORLD', 'BEST_RA_ERR', and 'BEST_DEC_ERR'.
     additional_error : bool, optional
         If True (default), adds an additional error of 0.1 arcsec in quadrature
         to the error ellipse axes.
@@ -178,8 +178,8 @@ def err2cov(temp_cat, additional_error=False):
         a = np.hypot(a, 0.1)
         b = np.hypot(b, 0.1)
 
-    turb_a = np.array(temp_cat["NEW_RA_ERR"])
-    turb_b = np.array(temp_cat["NEW_DEC_ERR"])
+    turb_a = np.array(temp_cat["BEST_RA_ERR"])
+    turb_b = np.array(temp_cat["BEST_DEC_ERR"])
 
     pa = np.zeros(len(temp_cat), dtype=float)
 
@@ -299,18 +299,12 @@ def fit5d(
                 Indices of the points used in the final fit.
             clips : ndarray
                 Indices of the points that were clipped.
-            g_mag, r_mag, i_mag, z_mag : float
-                Mode magnitudes in each band.
             color : float
-                Fitted or computed color (g - i).
+                Fitted or listed g-i color.
             color_err : float
                 Uncertainty in color.
             band_n : int
                 Number of points in each band (g, r, i, z).
-            band_spread : float
-                Median SPREAD_MODEL in each band.
-            band_spread_err : float
-                Median SPREADERR_MODEL in each band.
         Returns None if the fit is unsuccessful or does not meet criteria.
     Raises
     ------
@@ -421,20 +415,22 @@ def fit5d(
             chisqTotal = np.sum(chisq)
             dof = 2 * xy.shape[0] - 5
             if chisqTotal / dof < reducedChisqMax and (max(t) - min(t)) > time_sep:
-                g_mag, mag_mode_n = sps.mode(temp_cat["MAG_PSF_G"])
-                r_mag = sps.mode(temp_cat["MAG_PSF_R"])[0]
-                i_mag = sps.mode(temp_cat["MAG_PSF_I"])[0]
-                z_mag = sps.mode(temp_cat["MAG_PSF_Z"])[0]
-
-                color = g_mag - i_mag
+                # Each detection already carries the color (and which system it
+                # came from, or -1 if none was known/GPR assumed the default)
+                # used in its own GPR fit, so use that directly instead of
+                # re-deriving a color from mode coadd magnitudes. Fit for a
+                # color term unless (a) at least colorFrac of the detections
+                # have a known color, AND (b) among those, colorFrac agree on
+                # the same color value -- i.e. both checks use the same
+                # threshold as the old mag-mode check did.
+                frac_known_color = np.mean(temp_cat["COLOR_SOURCE"] != -1)
                 color_err = 0.0
+                use_fixed_color = frac_known_color >= colorFrac
+                if use_fixed_color:
+                    color, color_mode_n = sps.mode(temp_cat["COLOR"])
+                    use_fixed_color = color_mode_n >= colorFrac * len(temp_cat)
 
-                if (
-                    (mag_mode_n <= colorFrac * len(temp_cat))
-                    or (g_mag == -99.0)
-                    or (i_mag == -99.0)
-                    # or (color is extreme)
-                ):
+                if not use_fixed_color:
                     dxy_dcolor = (
                         np.array([temp_cat["DXI_DCOLOR"], temp_cat["DETA_DCOLOR"]]).T
                         * degree
@@ -465,20 +461,8 @@ def fit5d(
                     )
 
                 band_n = {}
-                band_spread = {}
-                band_spread_err = {}
                 for band in bands:
                     band_n[band] = len(temp_cat[temp_cat["BAND"] == band])
-                    if band_n[band] > 0:
-                        band_spread[band] = np.median(
-                            temp_cat["SPREAD_MODEL"][temp_cat["BAND"] == band]
-                        )
-                        band_spread_err[band] = np.median(
-                            temp_cat["SPREADERR_MODEL"][temp_cat["BAND"] == band]
-                        )
-                    else:
-                        band_spread[band] = 0.0
-                        band_spread_err[band] = 0.0
 
                 return (
                     p,
@@ -489,24 +473,12 @@ def fit5d(
                     nClip,
                     np.array(indices, dtype=np.int32),
                     np.array(clips, dtype=np.int32),
-                    g_mag,
-                    r_mag,
-                    i_mag,
-                    z_mag,
                     color,
                     color_err,
                     band_n["g"],
                     band_n["r"],
                     band_n["i"],
                     band_n["z"],
-                    band_spread["g"],
-                    band_spread["r"],
-                    band_spread["i"],
-                    band_spread["z"],
-                    band_spread_err["g"],
-                    band_spread_err["r"],
-                    band_spread_err["i"],
-                    band_spread_err["z"],
                 )
             else:
                 return None
