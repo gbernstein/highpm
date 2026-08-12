@@ -19,7 +19,7 @@ if _REPO_ROOT not in sys.path:
 
 # Augmented completeness catalog: measured (m50, k, c) plus t_eff-estimated rows
 # for exposures with no measurement. Built by scripts/build_completeness_table.py.
-COMPLETENESS_CAT_PATH = os.path.join(_REPO_ROOT, "data", "y6a1c.exposures.completeness.fits")
+COMPLETENESS_CAT_PATH = os.path.join(_REPO_ROOT, "data", "delve.exposures.completeness.fits")
 
 
 from astropy.coordinates import solar_system_ephemeris, EarthLocation, get_body
@@ -403,6 +403,7 @@ def generate_fake_detections(
             ("SPREADERR_MODEL", ">f4"),
             ("IMAFLAGS_ISO", ">i2"),
             ("ERRAWIN_WORLD", ">f4"),
+            ("ERRBWIN_WORLD", ">f4"),
             ("XWIN_IMAGE", ">f4"),
             ("YWIN_IMAGE", ">f4"),
             ("MAG_PSF_G", ">f4"),
@@ -451,6 +452,9 @@ def generate_fake_detections(
     fake_detections["SPREADERR_MODEL"] = 0.001
     fake_detections["IMAFLAGS_ISO"] = 0
     fake_detections["ERRAWIN_WORLD"] = errors[:, band_idx][mask]
+    # generate_noise draws x/y noise from an isotropic (circular) Gaussian, so
+    # the synthetic error ellipse has no minor/major distinction to model.
+    fake_detections["ERRBWIN_WORLD"] = errors[:, band_idx][mask]
     fake_detections["XWIN_IMAGE"] = 0.0
     fake_detections["YWIN_IMAGE"] = 0.0
     fake_detections["MAG_PSF_G"] = np.repeat(

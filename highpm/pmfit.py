@@ -152,7 +152,8 @@ def err2cov(temp_cat, additional_error=False):
     ----------
     temp_cat : np.ndarray
         Input catalog containing error ellipse parameters. Must contain the
-        columns 'ERRAWIN_WORLD', 'NEW_RA_ERR', and 'NEW_DEC_ERR'.
+        columns 'ERRAWIN_WORLD', 'ERRBWIN_WORLD', 'NEW_RA_ERR', and
+        'NEW_DEC_ERR'.
     additional_error : bool, optional
         If True (default), adds an additional error of 0.1 arcsec in quadrature
         to the error ellipse axes.
@@ -172,7 +173,7 @@ def err2cov(temp_cat, additional_error=False):
     degree = 3600.0  # in arcsec
 
     a = np.array(temp_cat["ERRAWIN_WORLD"]) * degree
-    b = np.array(temp_cat["ERRAWIN_WORLD"]) * degree
+    b = np.array(temp_cat["ERRBWIN_WORLD"]) * degree
 
     if additional_error:
         a = np.hypot(a, 0.1)

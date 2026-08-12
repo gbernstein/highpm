@@ -40,7 +40,7 @@ from highpm.pmfit import fit5d
 # loading/copying the full ~1 GB detection catalog.
 FASTCHECK_COLUMNS = [
     "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
-    "ERRAWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
+    "ERRAWIN_WORLD", "ERRBWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
     "MAG_PSF_G", "MAG_PSF_R", "MAG_PSF_I", "MAG_PSF_Z",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
 ]

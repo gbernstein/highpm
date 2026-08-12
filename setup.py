@@ -13,7 +13,7 @@ except ImportError:
 print('Python version = ',sys.version)
 py_version = "%d.%d"%sys.version_info[0:2]  # we check things based on the major.minor version.
 
-dependencies = ['numpy', 'astropy', 'easyaccess', 'pixmappy']
+dependencies = ['numpy', 'astropy', 'pixmappy']
 
 with open('README.md') as file:
     long_description = file.read()

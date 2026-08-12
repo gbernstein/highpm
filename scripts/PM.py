@@ -34,7 +34,7 @@ from highpm.utils import detections_for_removal
 # the fit columns.
 PM_COLUMNS = [
     "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
-    "ERRAWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
+    "ERRAWIN_WORLD", "ERRBWIN_WORLD", "NEW_RA_ERR", "NEW_DEC_ERR", "BAND",
     "MAG_PSF_G", "MAG_PSF_R", "MAG_PSF_I", "MAG_PSF_Z",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
     "FLAGS", "IMAFLAGS_ISO",
