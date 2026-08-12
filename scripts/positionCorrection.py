@@ -26,8 +26,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=(
-            "Match skim and GPR catalogs, cross-match to coadds, apply pixmappy "
-            "coordinate corrections, and write updated FITS tables per exposure."
+            "Match skim and GPR catalogs, compute color derivatives with pixmappy, "
+            "and write updated FITS tables per exposure."
         )
     )
 
@@ -48,11 +48,6 @@ if __name__ == "__main__":
             "One or more directories/glob prefixes for GPR FITS files named like "
             "'gpr_*{expnum:07d}_<band>.fits' (e.g., gpr_something_1234567_r.fits)."
         ),
-    )
-    parser.add_argument(
-        "--coadd-path",
-        required=True,
-        help=("Directory containing coadd files named 'y6_gold_2_2_{pix:05d}.fits'."),
     )
     parser.add_argument(
         "--output-path",
@@ -182,7 +177,6 @@ if __name__ == "__main__":
 
     print(f"Skim Path: {args.skims_path}")
     print(f"GPR Path: {args.gpr_path}")
-    print(f"Coadd Path: {args.coadd_path}")
     print(f"Output Path: {args.output_path}")
     print(f"Number of processes: {args.processes}")
     print(
@@ -191,7 +185,7 @@ if __name__ == "__main__":
 
     # Build argument tuples and use starmap to avoid pickling partials defined in __main__
     task_args = [
-        (expnum, args.skims_path, args.gpr_path, args.coadd_path, args.output_path)
+        (expnum, args.skims_path, args.gpr_path, args.output_path)
         for expnum in exposures
     ]
 

@@ -1,16 +1,12 @@
 import glob
 import os
 import re
-from typing import List
 
 import fitsio
 import h5py
-import healpy as hp
 import numpy as np
 import numpy.lib.recfunctions as rfn
 import pixmappy as pm
-from astropy import units as u
-from astropy.coordinates import SkyCoord, match_coordinates_sky
 
 from highpm.crossmatch import mutual_nearest_neighbor
 from highpm.gnomonic_converter import projectGnomonic
@@ -63,7 +59,8 @@ def loadGPR(filename):
             "id",
             "new_rd",
             "cov_model",
-            "has_color",
+            "color_source",
+            "color",
         ],
     )
 
@@ -76,9 +73,10 @@ def loadGPR(filename):
             ("CCDNUM", "i4"),
             ("NEW_RA", "f8"),
             ("NEW_DEC", "f8"),
-            ("NEW_RA_ERR", "f8"),
-            ("NEW_DEC_ERR", "f8"),
-            ("HAS_UNIQUE_COLOR", "i1"),
+            ("BEST_RA_ERR", "f8"),
+            ("BEST_DEC_ERR", "f8"),
+            ("COLOR_SOURCE", "i1"),
+            ("COLOR", "f8"),
         ],
     )
 
@@ -104,32 +102,18 @@ def loadGPR(filename):
     # cov_model lives in the same tangent-plane (xieta) basis as uv_model, in
     # arcsec**2, not degrees**2 -- so despite the RA/DEC-flavored name, these
     # are arcsec, and downstream code (pmfit.err2cov) uses them as such.
-    newData["NEW_RA_ERR"] = np.sqrt(data["cov_model"][:, 0, 0])
-    newData["NEW_DEC_ERR"] = np.sqrt(data["cov_model"][:, 1, 1])
-    newData["HAS_UNIQUE_COLOR"] = data["has_color"]
+    newData["BEST_RA_ERR"] = np.sqrt(data["cov_model"][:, 0, 0])
+    newData["BEST_DEC_ERR"] = np.sqrt(data["cov_model"][:, 1, 1])
+    # color_source is a pixmappy ColorConverter color-system code (0: g-i, 3: g-r,
+    # 4: Gaia bp-rp) identifying which known color the GPR fit used for that star's
+    # position, or -1 if no unique color was available and the fit assumed the
+    # default color instead. color is the actual (already-converted, g-i-equivalent)
+    # value that was used in either case.
+    newData["COLOR_SOURCE"] = data["color_source"]
+    newData["COLOR"] = data["color"]
 
     header = fitsio.read_header(filename, ext=1)
     return newData, header
-
-
-def loadCoadd(filename):
-    if not os.path.exists(filename):
-        raise FileNotFoundError(f"File {filename} does not exist.")
-
-    data = fitsio.read(
-        filename,
-        ext=1,
-        columns=[
-            "RA",
-            "DEC",
-            "MAG_PSF_G",
-            "MAG_PSF_R",
-            "MAG_PSF_I",
-            "MAG_PSF_Z",
-        ],
-    )
-    header = fitsio.read_header(filename, ext=1)
-    return data, header
 
 
 def getSkimFile(expnum, skimsPath="./"):
@@ -189,32 +173,6 @@ def getGPRFile(expnum, gprPath="./"):
     return sorted(matches)[0]
 
 
-def findCoaddFile(ra0, dec0, radius=1.1, nside=32, coaddPath="./") -> List[str]:
-    pointing = hp.dir2vec(ra0, dec0, lonlat=True)
-    ipix = hp.query_disc(nside, pointing, np.radians(radius), inclusive=True)
-    npix = np.arange(hp.nside2npix(nside))
-    coaddpix = npix[ipix]
-    coaddFiles = [
-        os.path.join(coaddPath, f"cat_hpx_{pix:05d}.fits") for pix in coaddpix
-    ]
-    return coaddFiles
-
-
-def combineCoadds(coaddFiles: List[str]):
-    combinedData = []
-    for coaddFile in coaddFiles:
-        if not os.path.exists(coaddFile):
-            print(f"Warning: Coadd file {coaddFile} does not exist.")
-            continue
-        data, _ = loadCoadd(coaddFile)
-        combinedData.append(data)
-
-    if not combinedData:
-        raise ValueError("No valid coadd files found to combine.")
-
-    return np.concatenate(combinedData)
-
-
 def matchGPRToSkimByPosition(gprData, skimData, tolerance=POSITION_MATCH_TOLERANCE):
     """Fallback for matchGPRToSkim: match by RA/Dec (mutual nearest neighbor,
     arcsec tolerance) instead of by (OBJECT_NUMBER, CCDNUM) id."""
@@ -269,39 +227,7 @@ def matchGPRToSkim(gprData, skimData):
     return matchGPRToSkimByPosition(gprData, skimData)
 
 
-def matchGPRToCoadd(coaddData, joinedSkimGPRData, radius=0.5):
-    coaddCoords = SkyCoord(
-        ra=coaddData["RA"],
-        dec=coaddData["DEC"],
-        unit="deg",
-        frame="icrs",
-    )
-
-    coaddData = rfn.drop_fields(coaddData, ["RA", "DEC"])
-
-    gprCoords = SkyCoord(
-        ra=joinedSkimGPRData["NEW_RA"],
-        dec=joinedSkimGPRData["NEW_DEC"],
-        unit="deg",
-        frame="icrs",
-    )
-
-    idx, d2d, _ = match_coordinates_sky(gprCoords, coaddCoords, nthneighbor=1)
-
-    matchedCoaddData = coaddData[idx]
-    matchedCoaddData[d2d > radius * u.arcsec] = -99.0  # type: ignore[attr-defined]
-
-    matchedSkimGPRCoaddData = rfn.merge_arrays(
-        [joinedSkimGPRData, matchedCoaddData],
-        asrecarray=True,
-        usemask=False,
-        flatten=True,
-    )
-
-    return matchedSkimGPRCoaddData
-
-
-def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
+def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
     maps = pm.DelveMaps()
 
     # delveExposures.hdf5 is an astropy Table dumped to a single compound dataset.
@@ -318,13 +244,13 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         ]
     )
 
-    ccdnumArgsort = np.argsort(matchedSkimGPRCoaddData["CCDNUM"])
-    ccdnumSort = matchedSkimGPRCoaddData["CCDNUM"][ccdnumArgsort]
+    ccdnumArgsort = np.argsort(matchedSkimGPRData["CCDNUM"])
+    ccdnumSort = matchedSkimGPRData["CCDNUM"][ccdnumArgsort]
     tmp = ccdnumSort[1:] != ccdnumSort[:-1]
     starts = np.concatenate(([0], np.where(tmp)[0] + 1, [len(ccdnumSort)]))
 
     tempData = np.zeros(
-        len(matchedSkimGPRCoaddData),
+        len(matchedSkimGPRData),
         dtype=[
             ("MJD", "f8"),
             ("PAR_XI", "f8"),
@@ -354,27 +280,23 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         parX = -tmpPar[0]
         parY = -tmpPar[1]
 
-        giColor = (
-            matchedSkimGPRCoaddData["MAG_PSF_G"]
-            - matchedSkimGPRCoaddData["MAG_PSF_I"]
-        )
+        # The GPR fit already used each star's own listed COLOR (identified by
+        # COLOR_SOURCE, a pixmappy ColorConverter system code, or -1 if no
+        # unique color was available and the fit assumed the default color
+        # instead) when solving for new_rd, so new_rd is already the best
+        # position -- no detection-level position remap is needed here. The
+        # same listed color is what we center the finite-difference color
+        # derivative on below, so it's evaluated at the same color the GPR fit
+        # actually used, not a coadd-derived stand-in.
+        hasKnownColor = matchedSkimGPRData["COLOR_SOURCE"] != -1
+        centerColor = matchedSkimGPRData["COLOR"]
 
-        # matchGPRToCoadd sets MAG_PSF_* to -99.0 when a detection has no coadd
-        # match within its radius; giColor is meaningless there (-99 - -99 = 0),
-        # so those rows must fall back to new_rd for BEST_RA/DEC, and the color
-        # derivative below is centered on defaultColor instead of giColor.
-        noCoaddMatch = matchedSkimGPRCoaddData["MAG_PSF_G"] == -99.0
-        useNewRD = matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"] | noCoaddMatch
-        centerColor = np.where(noCoaddMatch, defaultColor, giColor)
+        new_ra = matchedSkimGPRData["NEW_RA"]
+        new_dec = matchedSkimGPRData["NEW_DEC"]
 
-        new_ra = matchedSkimGPRCoaddData["NEW_RA"]
-        new_dec = matchedSkimGPRCoaddData["NEW_DEC"]
-
-        n = len(matchedSkimGPRCoaddData)
+        n = len(matchedSkimGPRData)
         xwin = np.empty(n, dtype="f8")
         ywin = np.empty(n, dtype="f8")
-        bestRA = np.empty(n, dtype="f8")
-        bestDEC = np.empty(n, dtype="f8")
         dRAdColor = np.empty(n, dtype="f8")
         dDECdColor = np.empty(n, dtype="f8")
 
@@ -382,12 +304,11 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         # of calling toPix/toSky per detection.
         for iStart in range(len(starts) - 1):
             iUse = ccdnumArgsort[starts[iStart] : starts[iStart + 1]]
-            ccdnum = int(matchedSkimGPRCoaddData["CCDNUM"][iUse[0]])
+            ccdnum = int(matchedSkimGPRData["CCDNUM"][iUse[0]])
 
             wcs = maps.getDelveWCS(expnum, ccdnum)
 
-            x, y = wcs.toPix(new_ra[iUse], new_dec[iUse], c=defaultColor)
-            bra, bdec = wcs.toSky(x, y, c=giColor[iUse])
+            x, y = wcs.toPix(new_ra[iUse], new_dec[iUse], c=centerColor[iUse])
 
             # Exact color derivative at each detection's own center color: a
             # small symmetric step, rather than a 1-mag secant, so the slope
@@ -400,8 +321,6 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
 
             xwin[iUse] = x
             ywin[iUse] = y
-            bestRA[iUse] = bra
-            bestDEC[iUse] = bdec
             dRAdColor[iUse] = (raPlus - raMinus) / COLOR_DERIVATIVE_STEP
             dDECdColor[iUse] = (decPlus - decMinus) / COLOR_DERIVATIVE_STEP
 
@@ -410,37 +329,25 @@ def sky2bestSky(matchedSkimGPRCoaddData, expnum, ra0, dec0, defaultColor=1.0):
         tempData["PAR_ETA"] = parY
         tempData["NEW_XWIN_IMAGE"] = xwin
         tempData["NEW_YWIN_IMAGE"] = ywin
-        tempData["BEST_RA"] = np.where(
-            useNewRD,
-            matchedSkimGPRCoaddData["NEW_RA"],
-            bestRA,
-        )
-        tempData["BEST_DEC"] = np.where(
-            useNewRD,
-            matchedSkimGPRCoaddData["NEW_DEC"],
-            bestDEC,
-        )
-        # HAS_UNIQUE_COLOR rows already used the star's own known color in the
-        # GPR fit, so there's no remaining color ambiguity to model. noCoaddMatch
-        # rows still get a real (nonzero) derivative, centered on defaultColor.
-        tempData["DRA_DCOLOR"] = np.where(
-            matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"], 0.0, dRAdColor
-        )
-        tempData["DDEC_DCOLOR"] = np.where(
-            matchedSkimGPRCoaddData["HAS_UNIQUE_COLOR"], 0.0, dDECdColor
-        )
+        tempData["BEST_RA"] = matchedSkimGPRData["NEW_RA"]
+        tempData["BEST_DEC"] = matchedSkimGPRData["NEW_DEC"]
+        # Rows with a known color already had it used in the GPR fit, so
+        # there's no remaining color ambiguity to model. Only rows that fell
+        # back to the default color get a real (nonzero) derivative.
+        tempData["DRA_DCOLOR"] = np.where(hasKnownColor, 0.0, dRAdColor)
+        tempData["DDEC_DCOLOR"] = np.where(hasKnownColor, 0.0, dDECdColor)
 
-    updatedSkimGPRCoaddData = rfn.merge_arrays(
-        [matchedSkimGPRCoaddData, tempData],
+    updatedSkimGPRData = rfn.merge_arrays(
+        [matchedSkimGPRData, tempData],
         asrecarray=True,
         usemask=False,
         flatten=True,
     )
 
-    return updatedSkimGPRCoaddData
+    return updatedSkimGPRData
 
 
-def process_exposure(expnum, skimsPath, gprPath, coaddPath, outputPath):
+def process_exposure(expnum, skimsPath, gprPath, outputPath):
     print(f"Processing exposure number: {expnum}")
 
     skimFile = getSkimFile(expnum, skimsPath)
@@ -458,19 +365,17 @@ def process_exposure(expnum, skimsPath, gprPath, coaddPath, outputPath):
 
     joinedSkimGPRData = matchGPRToSkim(gprData, skimData)
 
-    coaddFiles = findCoaddFile(gprHeader["RA0"], gprHeader["DEC0"], coaddPath=coaddPath)
-
-    coaddData = combineCoadds(coaddFiles)
-
-    matchedData = matchGPRToCoadd(coaddData, joinedSkimGPRData)
-
     updatedData = sky2bestSky(
-        matchedData,
+        joinedSkimGPRData,
         expnum,
         gprHeader["RA0"],
         gprHeader["DEC0"],
-        defaultColor=gprHeader["DEF_COL"],
     )
+
+    # NEW_RA/NEW_DEC are now redundant with BEST_RA/BEST_DEC (sky2bestSky just
+    # copies them through, since the GPR fit already used each detection's
+    # listed color), so don't carry the duplicate columns into the output file.
+    updatedData = rfn.drop_fields(updatedData, ["NEW_RA", "NEW_DEC"])
 
     updatedHeader = gprHeader
     updatedHeader["EXPNUM"] = expnum

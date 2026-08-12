@@ -28,8 +28,8 @@ def concatenate_detections(detection_files):
 
 def clean_err_detections(detections):
 
-    good_detections = (detections["NEW_RA_ERR"] > 0.0) & (
-        detections["NEW_DEC_ERR"] > 0.0
+    good_detections = (detections["BEST_RA_ERR"] > 0.0) & (
+        detections["BEST_DEC_ERR"] > 0.0
     )
 
     return detections[good_detections]
@@ -60,8 +60,8 @@ def clean_healpix_detections(detections, ipix, nside=32, subside=16):
 
     detections_ipix = hp.ang2pix(
         fine,
-        np.radians(90.0 - detections["NEW_DEC"]),
-        np.radians(detections["NEW_RA"]),
+        np.radians(90.0 - detections["BEST_DEC"]),
+        np.radians(detections["BEST_RA"]),
     )
 
     return detections[np.isin(detections_ipix, good_subpix)]
