@@ -15,7 +15,7 @@ def concatenate_detections(detection_files):
         header = fitsio.read_header(file, ext=1)
         expnum = int(os.path.basename(file).split(".")[0][-8:])
         # GPR_RA0/GPR_DEC0: the GPR fit's own tangent point (from position_correction's
-        # gprHeader), needed downstream to rotate BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV
+        # gprHeader), needed downstream to rotate BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR
         # out of the GPR's local xi/eta frame and into the healpixel's.
         data = rfn.append_fields(
             base=data,
@@ -41,14 +41,14 @@ def rotate_covariances_to_healpix_frame(detections, ra0, dec0):
     covariance, rotated into the healpixel's own (xi, eta) frame -- the frame
     the fit actually runs in (see scripts/detectionPacking.py's XI/ETA,
     computed about the same ra0/dec0 via the same gnomonic projection).
-    Overwrites BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV in place with the
+    Overwrites BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR in place with the
     combined result; downstream code (pmfit.err2cov) just reads them back.
 
     - ERRAWIN_WORLD/ERRBWIN_WORLD/ERRTHETAWIN_J2000 describe the SExtractor
       ellipse in the local East/North frame at each detection's own sky
       position. Rotated into (xi, eta) via J_healpix (East = cos(dec)*dRA,
       North = dDec).
-    - BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV describe the GPR covariance in
+    - BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR describe the GPR covariance in
       the GPR fit's own (xi, eta) frame, tangent about (GPR_RA0, GPR_DEC0)
       (see highpm.position_correction.loadGPR). Rotated via
       M = J_healpix @ inv(J_gpr), the Jacobian mapping GPR-frame (xi, eta)
@@ -56,7 +56,11 @@ def rotate_covariances_to_healpix_frame(detections, ra0, dec0):
 
     Both rotations use the exact gnomonic Jacobian (gnomonicJacobian), not a
     small-angle approximation, since detections can be several degrees from
-    the healpixel center.
+    the healpixel center. The off-diagonal is stored as a correlation
+    coefficient rather than a raw covariance, both on input and output --
+    less ambiguous to read next to the two per-axis errors than a number in
+    arcsec**2 -- so it's converted to/from a covariance around the actual
+    matrix congruence transform, which needs the raw covariance.
     """
     ra = detections["BEST_RA"]
     dec = detections["BEST_DEC"]
@@ -96,15 +100,19 @@ def rotate_covariances_to_healpix_frame(detections, ra0, dec0):
 
     cxx = detections["BEST_RA_ERR"] ** 2
     cyy = detections["BEST_DEC_ERR"] ** 2
-    cxy = detections["BEST_RA_DEC_COV"]
+    cxy = detections["BEST_RA_DEC_CORR"] * detections["BEST_RA_ERR"] * detections["BEST_DEC_ERR"]
 
     gpr_xx = m00 * m00 * cxx + 2 * m00 * m01 * cxy + m01 * m01 * cyy
     gpr_yy = m10 * m10 * cxx + 2 * m10 * m11 * cxy + m11 * m11 * cyy
     gpr_xy = m00 * m10 * cxx + (m00 * m11 + m01 * m10) * cxy + m01 * m11 * cyy
 
-    detections["BEST_RA_ERR"] = np.sqrt(err_xx + gpr_xx)
-    detections["BEST_DEC_ERR"] = np.sqrt(err_yy + gpr_yy)
-    detections["BEST_RA_DEC_COV"] = err_xy + gpr_xy
+    total_xx = err_xx + gpr_xx
+    total_yy = err_yy + gpr_yy
+    total_xy = err_xy + gpr_xy
+
+    detections["BEST_RA_ERR"] = np.sqrt(total_xx)
+    detections["BEST_DEC_ERR"] = np.sqrt(total_yy)
+    detections["BEST_RA_DEC_CORR"] = total_xy / np.sqrt(total_xx * total_yy)
 
     return rfn.drop_fields(
         detections,
@@ -185,27 +193,35 @@ def _demo_rotate_covariances_to_healpix_frame():
     with (xi, eta), so it should add straight onto the diagonal)."""
     dtype = [
         ("BEST_RA", "f8"), ("BEST_DEC", "f8"),
-        ("BEST_RA_ERR", "f8"), ("BEST_DEC_ERR", "f8"), ("BEST_RA_DEC_COV", "f8"),
+        ("BEST_RA_ERR", "f8"), ("BEST_DEC_ERR", "f8"), ("BEST_RA_DEC_CORR", "f8"),
         ("GPR_RA0", "f8"), ("GPR_DEC0", "f8"),
         ("ERRAWIN_WORLD", "f8"), ("ERRBWIN_WORLD", "f8"), ("ERRTHETAWIN_J2000", "f8"),
     ]
     det = np.zeros(1, dtype=dtype)
     det["BEST_RA"], det["BEST_DEC"] = 10.0, -30.0
-    det["BEST_RA_ERR"], det["BEST_DEC_ERR"], det["BEST_RA_DEC_COV"] = 0.2, 0.1, 0.03
+    det["BEST_RA_ERR"], det["BEST_DEC_ERR"], det["BEST_RA_DEC_CORR"] = 0.2, 0.1, 0.3
     det["GPR_RA0"], det["GPR_DEC0"] = 10.0, -30.0
+    gpr_cov_before = 0.3 * 0.2 * 0.1  # corr * err_ra * err_dec
 
     same_center = rotate_covariances_to_healpix_frame(det.copy(), 10.0, -30.0)
     assert np.isclose(same_center["BEST_RA_ERR"][0], 0.2)
     assert np.isclose(same_center["BEST_DEC_ERR"][0], 0.1)
-    assert np.isclose(same_center["BEST_RA_DEC_COV"][0], 0.03)
+    assert np.isclose(same_center["BEST_RA_DEC_CORR"][0], 0.3)
 
     det_with_ellipse = det.copy()
     det_with_ellipse["ERRAWIN_WORLD"] = 0.3 / 3600.0
     det_with_ellipse["ERRBWIN_WORLD"] = 0.15 / 3600.0
     with_ellipse = rotate_covariances_to_healpix_frame(det_with_ellipse, 10.0, -30.0)
-    assert np.isclose(with_ellipse["BEST_RA_ERR"][0] ** 2, 0.2**2 + 0.3**2)
-    assert np.isclose(with_ellipse["BEST_DEC_ERR"][0] ** 2, 0.1**2 + 0.15**2)
-    assert np.isclose(with_ellipse["BEST_RA_DEC_COV"][0], 0.03)
+    total_xx = 0.2**2 + 0.3**2
+    total_yy = 0.1**2 + 0.15**2
+    assert np.isclose(with_ellipse["BEST_RA_ERR"][0] ** 2, total_xx)
+    assert np.isclose(with_ellipse["BEST_DEC_ERR"][0] ** 2, total_yy)
+    # The ellipse is circular (a == b), so it has no off-diagonal of its own --
+    # only the GPR covariance contributes, but the correlation coefficient
+    # still shifts since it's now relative to the larger combined variances.
+    assert np.isclose(
+        with_ellipse["BEST_RA_DEC_CORR"][0], gpr_cov_before / np.sqrt(total_xx * total_yy)
+    )
 
     ra0_hp, dec0_hp = 13.0, -30.0
     offset = rotate_covariances_to_healpix_frame(det.copy(), ra0_hp, dec0_hp)
@@ -220,11 +236,14 @@ def _demo_rotate_covariances_to_healpix_frame():
         gnomonicJacobian(ra, dec, det["GPR_RA0"], det["GPR_DEC0"])
     ).reshape(2, 2)
     m = j_hp @ np.linalg.inv(j_gpr)
-    cov_before = np.array([[0.2**2, 0.03], [0.03, 0.1**2]])
+    cov_before = np.array([[0.2**2, gpr_cov_before], [gpr_cov_before, 0.1**2]])
     cov_after = m @ cov_before @ m.T
     assert np.isclose(offset["BEST_RA_ERR"][0] ** 2, cov_after[0, 0])
     assert np.isclose(offset["BEST_DEC_ERR"][0] ** 2, cov_after[1, 1])
-    assert np.isclose(offset["BEST_RA_DEC_COV"][0], cov_after[0, 1])
+    assert np.isclose(
+        offset["BEST_RA_DEC_CORR"][0],
+        cov_after[0, 1] / np.sqrt(cov_after[0, 0] * cov_after[1, 1]),
+    )
     print("rotate_covariances_to_healpix_frame self-check passed")
 
 

@@ -152,7 +152,7 @@ def err2cov(temp_cat):
     ----------
     temp_cat : np.ndarray
         Input catalog. Must contain 'BEST_RA_ERR', 'BEST_DEC_ERR', and
-        'BEST_RA_DEC_COV'.
+        'BEST_RA_DEC_CORR'.
     Returns
     -------
     cov_xy : numpy.ndarray
@@ -160,18 +160,20 @@ def err2cov(temp_cat):
         eta) frame, for each entry of `temp_cat`.
     Notes
     -----
-    BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV already carry the full combined
+    BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR already carry the full combined
     covariance -- the ERRWIN ellipse plus the GPR/turbulence term -- rotated
     into the fit's (xi, eta) frame at packing time (see
-    highpm.detection_packaging.rotate_covariances_to_healpix_frame).
+    highpm.detection_packaging.rotate_covariances_to_healpix_frame). The
+    off-diagonal is stored as a correlation coefficient (dimensionless, in
+    [-1, 1]) rather than a raw covariance, since it reads less ambiguously
+    next to the two per-axis errors -- so it's converted back to a covariance
+    here.
     """
+    ra_err = np.array(temp_cat["BEST_RA_ERR"], dtype=np.float64)
+    dec_err = np.array(temp_cat["BEST_DEC_ERR"], dtype=np.float64)
+    corr = np.array(temp_cat["BEST_RA_DEC_CORR"], dtype=np.float64)
     return np.array(
-        [
-            np.array(temp_cat["BEST_RA_ERR"], dtype=np.float64) ** 2,
-            np.array(temp_cat["BEST_DEC_ERR"], dtype=np.float64) ** 2,
-            np.array(temp_cat["BEST_RA_DEC_COV"], dtype=np.float64),
-        ],
-        dtype=np.float64,
+        [ra_err**2, dec_err**2, corr * ra_err * dec_err], dtype=np.float64
     ).T
 
 
@@ -441,19 +443,20 @@ def fit5d(
 
 
 def _demo_err2cov():
-    """Self-check: err2cov just reads back BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV
-    as a (var_xx, var_yy, cov_xy) triple. The actual ellipse-rotation and
+    """Self-check: err2cov reads back BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR
+    and converts the correlation coefficient to a covariance, (var_xx, var_yy,
+    corr * err_ra * err_dec). The actual ellipse-rotation and
     covariance-summing math lives in
     highpm.detection_packaging.rotate_covariances_to_healpix_frame now."""
     temp_cat = {
         "BEST_RA_ERR": np.array([2.0]),
         "BEST_DEC_ERR": np.array([1.0]),
-        "BEST_RA_DEC_COV": np.array([0.3]),
+        "BEST_RA_DEC_CORR": np.array([0.15]),
     }
     cov_xy = err2cov(temp_cat)
     assert np.isclose(cov_xy[0, 0], 4.0)
     assert np.isclose(cov_xy[0, 1], 1.0)
-    assert np.isclose(cov_xy[0, 2], 0.3)
+    assert np.isclose(cov_xy[0, 2], 0.3)  # 0.15 * 2.0 * 1.0
     print("err2cov self-check passed")
 
 

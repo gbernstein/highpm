@@ -398,7 +398,7 @@ def generate_fake_detections(
             ("NEW_DEC", ">f8"),
             ("BEST_RA_ERR", ">f8"),
             ("BEST_DEC_ERR", ">f8"),
-            ("BEST_RA_DEC_COV", ">f8"),
+            ("BEST_RA_DEC_CORR", ">f8"),
             ("COLOR_SOURCE", "i1"),
             ("COLOR", ">f8"),
             ("BAND", "<U1"),
