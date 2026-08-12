@@ -21,6 +21,7 @@ from highpm.detection_packaging import (
     concatenate_detections,
     get_exposures_near_healpix,
     get_healpix_center,
+    rotate_covariances_to_healpix_frame,
 )
 from highpm.gnomonic_converter import projectGnomonic
 
@@ -194,6 +195,9 @@ if __name__ == "__main__":
         sys.exit(0)
 
     ra0, dec0 = get_healpix_center(healpix, nside=args.nside)
+
+    detections = rotate_covariances_to_healpix_frame(detections, ra0, dec0)
+
     xi, eta, dxi, deta = projectGnomonic(
         detections["BEST_RA"],
         detections["BEST_DEC"],

@@ -160,7 +160,7 @@ def fast_movers(cat, fitter, config):
     y = np.array(cat["ETA"], dtype=np.float64) * 3600.0
     t = np.array(cat["MJD"], dtype=np.float64) / 365.2425
 
-    cov_xy = err2cov(cat, additional_error=False)
+    cov_xy = err2cov(cat)
 
     fast_tree = arborist(x, y)
 

@@ -133,3 +133,24 @@ def projectGnomonic(ra, dec, delta_ra, delta_dec, ra0, dec0):
     dy_proj[valid] = dy_valid
 
     return np.degrees(x), np.degrees(y), np.degrees(dx_proj), np.degrees(dy_proj)
+
+
+def gnomonicJacobian(ra, dec, ra0, dec0):
+    """Local Jacobian d(xi, eta)/d(RA, Dec) of the gnomonic projection at
+    (ra, dec) relative to tangent point (ra0, dec0), in degree/degree units.
+
+    Reuses projectGnomonic's own direction-vector projection (the same path
+    it uses for color-derivative propagation) with unit RA/Dec offsets, so
+    the Jacobian is exact rather than a finite-difference approximation.
+
+    Returns
+    -------
+    dxi_dra, dxi_ddec, deta_dra, deta_ddec : ndarray
+        Jacobian components, each with the same shape as `ra`.
+    """
+    ra = np.asarray(ra, dtype=float)
+    ones = np.ones_like(ra)
+    zeros = np.zeros_like(ra)
+    _, _, dxi_dra, deta_dra = projectGnomonic(ra, dec, ones, zeros, ra0, dec0)
+    _, _, dxi_ddec, deta_ddec = projectGnomonic(ra, dec, zeros, ones, ra0, dec0)
+    return dxi_dra, dxi_ddec, deta_dra, deta_ddec

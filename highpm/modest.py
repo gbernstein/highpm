@@ -71,7 +71,7 @@ def new_modest_mover(sample, cat, config, mode="modest"):
     y = np.array(cat["ETA"][sample]) * 3600.0
     t = np.array(cat["MJD"][sample]) / 365.2425
 
-    cov = err2cov(cat[sample], additional_error=False)
+    cov = err2cov(cat[sample])
 
     pairs = np.array(np.triu_indices(len(sample), k=1)).T
 

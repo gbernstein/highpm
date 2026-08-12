@@ -40,7 +40,7 @@ from highpm.pmfit import fit5d
 # loading/copying the full ~1 GB detection catalog.
 FASTCHECK_COLUMNS = [
     "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
-    "ERRAWIN_WORLD", "ERRBWIN_WORLD", "BEST_RA_ERR", "BEST_DEC_ERR", "BAND",
+    "BEST_RA_ERR", "BEST_DEC_ERR", "BEST_RA_DEC_COV", "BAND",
     "COLOR", "COLOR_SOURCE",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
 ]
@@ -68,7 +68,6 @@ def _validate_config(config: dict):
             "color_prior",
             "colorFrac",
             "pm_prior",
-            "additional_error",
         ):
             if k not in config["fitting"]:
                 missing.append(f"fitting.{k}")
@@ -191,7 +190,6 @@ def run_fast_checks(
         color_prior=fit_cfg["color_prior"],
         colorFrac=fit_cfg["colorFrac"],
         pm_prior=fit_cfg["pm_prior"],
-        additional_error=fit_cfg["additional_error"],
     )
 
     # Run fast checker

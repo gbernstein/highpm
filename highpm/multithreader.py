@@ -104,9 +104,6 @@ def multi_fit5d(fitter, detections_groups, cat, config):
                 Color fraction for fitting.
             - 'pm_prior': float
                 Proper motion prior value for fitting.
-            - 'additional_error': bool
-                whether or not to add additional error to be added to the fitting
-                process.
     Returns
     -------
     np.ndarray
@@ -123,7 +120,6 @@ def multi_fit5d(fitter, detections_groups, cat, config):
         "color_prior",
         "colorFrac",
         "pm_prior",
-        "additional_error",
     ]
     if np.any(
         [key not in config and key not in config["fitting"] for key in config_reqs]
@@ -139,7 +135,6 @@ def multi_fit5d(fitter, detections_groups, cat, config):
         color_prior=config["fitting"]["color_prior"],
         colorFrac=config["fitting"]["colorFrac"],
         pm_prior=config["fitting"]["pm_prior"],
-        additional_error=config["fitting"]["additional_error"],
     )
 
     # Multithreaded application of a 5D fitter to groups of detections

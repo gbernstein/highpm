@@ -30,6 +30,10 @@ from highpm.detection_packaging import get_healpix_center
 
 rng = np.random.default_rng(42)
 
+# Stand-in for the GPR/turbulence positional error (highpm.position_correction's
+# BEST_RA_ERR/BEST_DEC_ERR): a normal distribution with a few mas of scatter.
+GPR_ERROR_ARCSEC = 0.004
+
 
 def F_ra(ra_star, R_earth, ra_sun, dec_ecliptic):
     F_ra = R_earth * np.sin(ra_sun) * np.cos(ra_star) * np.cos(
@@ -310,7 +314,7 @@ def generate_fake_detections(
         [{"g": 0, "r": 1, "i": 2, "z": 3}[b] for b in unique_observations["BAND"]]
     )
 
-    noise = generate_noise(band_idx, errors, turb_error=0.005)
+    noise = generate_noise(band_idx, errors, turb_error=GPR_ERROR_ARCSEC)
 
     print("Shape noise:", noise.shape)
 
@@ -394,6 +398,7 @@ def generate_fake_detections(
             ("NEW_DEC", ">f8"),
             ("BEST_RA_ERR", ">f8"),
             ("BEST_DEC_ERR", ">f8"),
+            ("BEST_RA_DEC_COV", ">f8"),
             ("COLOR_SOURCE", "i1"),
             ("COLOR", ">f8"),
             ("BAND", "<U1"),
@@ -403,8 +408,6 @@ def generate_fake_detections(
             ("SPREAD_MODEL", ">f4"),
             ("SPREADERR_MODEL", ">f4"),
             ("IMAFLAGS_ISO", ">i2"),
-            ("ERRAWIN_WORLD", ">f4"),
-            ("ERRBWIN_WORLD", ">f4"),
             ("XWIN_IMAGE", ">f4"),
             ("YWIN_IMAGE", ">f4"),
             ("MJD", ">f8"),
@@ -436,8 +439,15 @@ def generate_fake_detections(
     fake_detections["OBJECT_NUMBER"] = np.arange(np.sum(mask))
     fake_detections["NEW_RA"] = ra_detections[mask]
     fake_detections["NEW_DEC"] = dec_detections[mask]
-    fake_detections["BEST_RA_ERR"] = np.sqrt(2) * 0.005
-    fake_detections["BEST_DEC_ERR"] = np.sqrt(2) * 0.005
+    # fake_detections already represents the final packed catalog (it carries
+    # XI/ETA/ID like scripts/detectionPacking.py's output), so the ERRWIN
+    # ellipse noise below is folded straight into BEST_RA_ERR/BEST_DEC_ERR
+    # rather than kept as separate ERRAWIN_WORLD/ERRBWIN_WORLD columns.
+    # errors (mag-dependent, from generate_errors) is in degrees, matching
+    # xi/eta -- convert to arcsec to combine with GPR_ERROR_ARCSEC.
+    ellipse_err_arcsec = errors[:, band_idx][mask] * 3600.0
+    fake_detections["BEST_RA_ERR"] = np.hypot(GPR_ERROR_ARCSEC, ellipse_err_arcsec)
+    fake_detections["BEST_DEC_ERR"] = np.hypot(GPR_ERROR_ARCSEC, ellipse_err_arcsec)
     fake_detections["BAND"] = np.repeat(
         unique_observations["BAND"][np.newaxis, :], len(fake_stars), axis=0
     )[mask]
@@ -447,10 +457,6 @@ def generate_fake_detections(
     fake_detections["SPREAD_MODEL"] = 0.0
     fake_detections["SPREADERR_MODEL"] = 0.001
     fake_detections["IMAFLAGS_ISO"] = 0
-    fake_detections["ERRAWIN_WORLD"] = errors[:, band_idx][mask]
-    # generate_noise draws x/y noise from an isotropic (circular) Gaussian, so
-    # the synthetic error ellipse has no minor/major distinction to model.
-    fake_detections["ERRBWIN_WORLD"] = errors[:, band_idx][mask]
     fake_detections["XWIN_IMAGE"] = 0.0
     fake_detections["YWIN_IMAGE"] = 0.0
     # Fakes are injected with a known g-i color, so mark them the same as a

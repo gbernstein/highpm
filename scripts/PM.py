@@ -34,7 +34,7 @@ from highpm.utils import detections_for_removal
 # the fit columns.
 PM_COLUMNS = [
     "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
-    "ERRAWIN_WORLD", "ERRBWIN_WORLD", "BEST_RA_ERR", "BEST_DEC_ERR", "BAND",
+    "BEST_RA_ERR", "BEST_DEC_ERR", "BEST_RA_DEC_COV", "BAND",
     "COLOR", "COLOR_SOURCE",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
     "FLAGS", "IMAFLAGS_ISO",
@@ -64,7 +64,6 @@ def _validate_config(config: dict):
             "color_prior",
             "colorFrac",
             "pm_prior",
-            "additional_error",
         ):
             if k not in config["fitting"]:
                 missing.append(f"fitting.{k}")
@@ -122,7 +121,6 @@ def run_pm(
         color_prior=fitting["color_prior"],
         colorFrac=fitting["colorFrac"],
         pm_prior=fitting["pm_prior"],
-        additional_error=fitting["additional_error"],
     )
 
     n_modests = int(config["n_modests"])

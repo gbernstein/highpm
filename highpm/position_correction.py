@@ -75,6 +75,7 @@ def loadGPR(filename):
             ("NEW_DEC", "f8"),
             ("BEST_RA_ERR", "f8"),
             ("BEST_DEC_ERR", "f8"),
+            ("BEST_RA_DEC_COV", "f8"),
             ("COLOR_SOURCE", "i1"),
             ("COLOR", "f8"),
         ],
@@ -104,6 +105,7 @@ def loadGPR(filename):
     # are arcsec, and downstream code (pmfit.err2cov) uses them as such.
     newData["BEST_RA_ERR"] = np.sqrt(data["cov_model"][:, 0, 0])
     newData["BEST_DEC_ERR"] = np.sqrt(data["cov_model"][:, 1, 1])
+    newData["BEST_RA_DEC_COV"] = data["cov_model"][:, 0, 1]
     # color_source is a pixmappy ColorConverter color-system code (0: g-i, 3: g-r,
     # 4: Gaia bp-rp) identifying which known color the GPR fit used for that star's
     # position, or -1 if no unique color was available and the fit assumed the

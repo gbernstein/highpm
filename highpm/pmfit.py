@@ -145,74 +145,34 @@ def singleFit(
     return p, None, None, fit, chisq, alpha
 
 
-def err2cov(temp_cat, additional_error=False):
-    """Convert error ellipse parameters to covariance matrix components.
+def err2cov(temp_cat):
+    """Read the per-detection fit covariance.
 
     Parameters
     ----------
     temp_cat : np.ndarray
-        Input catalog containing error ellipse parameters. Must contain the
-        columns 'ERRAWIN_WORLD', 'ERRBWIN_WORLD', 'BEST_RA_ERR', and
-        'BEST_DEC_ERR'.
-    additional_error : bool, optional
-        If True (default), adds an additional error of 0.1 arcsec in quadrature
-        to the error ellipse axes.
+        Input catalog. Must contain 'BEST_RA_ERR', 'BEST_DEC_ERR', and
+        'BEST_RA_DEC_COV'.
     Returns
     -------
     cov_xy : numpy.ndarray
-        Array of shape (N, 3), where N is the number of entries in `temp_cat`.
-        Each row contains the covariance matrix components (cov_xx, cov_yy,
-        cov_xy) for the corresponding entry.
+        Array of shape (N, 3): (cov_xx, cov_yy, cov_xy) in the fit's (xi,
+        eta) frame, for each entry of `temp_cat`.
     Notes
     -----
-    The function assumes that the position angle is zero for all entries.
-    The covariance matrix is computed as the sum of the original and
-    turbulent error contributions.
+    BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV already carry the full combined
+    covariance -- the ERRWIN ellipse plus the GPR/turbulence term -- rotated
+    into the fit's (xi, eta) frame at packing time (see
+    highpm.detection_packaging.rotate_covariances_to_healpix_frame).
     """
-
-    degree = 3600.0  # in arcsec
-
-    a = np.array(temp_cat["ERRAWIN_WORLD"]) * degree
-    b = np.array(temp_cat["ERRBWIN_WORLD"]) * degree
-
-    if additional_error:
-        a = np.hypot(a, 0.1)
-        b = np.hypot(b, 0.1)
-
-    turb_a = np.array(temp_cat["BEST_RA_ERR"])
-    turb_b = np.array(temp_cat["BEST_DEC_ERR"])
-
-    pa = np.zeros(len(temp_cat), dtype=float)
-
-    # Convert to cov
-    ee = a * a - b * b
-    cov_xy = (
-        np.array(
-            [
-                a * a + b * b + ee * np.cos(pa),
-                a * a + b * b - ee * np.cos(pa),
-                ee * np.sin(pa),
-            ],
-            dtype=np.float64,
-        ).T
-        / 2.0
-    )
-
-    turb_cov_xy = (
-        np.array(
-            [
-                turb_a * turb_a + turb_b * turb_b + ee * np.cos(pa),
-                turb_a * turb_a + turb_b * turb_b - ee * np.cos(pa),
-                ee * np.sin(pa),
-            ],
-            np.float64,
-        ).T
-        / 2.0
-    )
-
-    cov_xy += turb_cov_xy
-
-    return cov_xy
+    return np.array(
+        [
+            np.array(temp_cat["BEST_RA_ERR"], dtype=np.float64) ** 2,
+            np.array(temp_cat["BEST_DEC_ERR"], dtype=np.float64) ** 2,
+            np.array(temp_cat["BEST_RA_DEC_COV"], dtype=np.float64),
+        ],
+        dtype=np.float64,
+    ).T
 
 
 def count_seasons(mjd, dt):
@@ -241,7 +201,6 @@ def fit5d(
     t_season=0.25,
     colorFrac=0.9,
     pm_prior=None,
-    additional_error=False,
 ):
     """Fits a 5-parameter astrometric model to a set of catalog entries, with
     iterative outlier rejection and optional color term solving.
@@ -277,9 +236,6 @@ def fit5d(
         Fractional threshold for color mode selection. Default is 0.9.
     pm_prior : float or None, optional
         Prior on proper motion parameter. Default is None (no prior).
-    additional_error : bool, optional
-        Whether to include additional error in covariance calculation. Default
-        is True.
     Returns
     -------
     tuple or None
@@ -344,7 +300,7 @@ def fit5d(
     expnum = temp_cat["EXPNUM"]
 
     # Put covariance into matrix form
-    cov_xy = err2cov(temp_cat, additional_error=additional_error)
+    cov_xy = err2cov(temp_cat)
 
     nClip = 0
     clips = []
@@ -409,10 +365,6 @@ def fit5d(
 
         else:
             # Fit is finished
-            # Use true covariance for final fit
-
-            true_cov_xy = err2cov(temp_cat, additional_error=False)
-
             chisqTotal = np.sum(chisq)
             dof = 2 * xy.shape[0] - 5
             if chisqTotal / dof < reducedChisqMax and (max(t) - min(t)) > time_sep:
@@ -439,7 +391,7 @@ def fit5d(
                     try:
                         p, color, color_err, _, chisq, alpha = singleFit(
                             xy,
-                            true_cov_xy,
+                            cov_xy,
                             t,
                             par_xy,
                             parallax_prior=parallax_prior,
@@ -458,7 +410,7 @@ def fit5d(
 
                 else:
                     p, *_, chisq, alpha = singleFit(
-                        xy, true_cov_xy, t, par_xy, parallax_prior=parallax_prior
+                        xy, cov_xy, t, par_xy, parallax_prior=parallax_prior
                     )
 
                 band_n = {}
@@ -486,3 +438,24 @@ def fit5d(
 
     # Get here if fit did not start with enough points
     return None
+
+
+def _demo_err2cov():
+    """Self-check: err2cov just reads back BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_COV
+    as a (var_xx, var_yy, cov_xy) triple. The actual ellipse-rotation and
+    covariance-summing math lives in
+    highpm.detection_packaging.rotate_covariances_to_healpix_frame now."""
+    temp_cat = {
+        "BEST_RA_ERR": np.array([2.0]),
+        "BEST_DEC_ERR": np.array([1.0]),
+        "BEST_RA_DEC_COV": np.array([0.3]),
+    }
+    cov_xy = err2cov(temp_cat)
+    assert np.isclose(cov_xy[0, 0], 4.0)
+    assert np.isclose(cov_xy[0, 1], 1.0)
+    assert np.isclose(cov_xy[0, 2], 0.3)
+    print("err2cov self-check passed")
+
+
+if __name__ == "__main__":
+    _demo_err2cov()
