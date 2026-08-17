@@ -108,9 +108,10 @@ def fast_movers(cat, fitter, config):
             - 'pairlength': float, optional
                 Maximum separation (in arcseconds) for initial detection pairing.
                 Default is 20.0.
-            - 'linklength': float, optional
-                Maximum distance in 4D position-velocity space for clustering.
-                Default is 1.0.
+            - 'eps_pad': float, optional
+                Safety margin, in multiples of eps, for the whitened 4D
+                linking search radius (covers pairs whose combined variance
+                exceeds the pixel's typical value). Default is 3.0.
             - 'min_pairs': int, optional
                 Minimum number of detection pairs required for a candidate object.
                 Default is 4.
@@ -143,7 +144,6 @@ def fast_movers(cat, fitter, config):
     """
     config_reqs = [
         "pairlength",
-        "linklength",
         "cores",
         "min_pairs",
         "min_sep",
@@ -204,14 +204,25 @@ def fast_movers(cat, fitter, config):
     cov = np.concatenate(cov_kept)
     print(f"fast_movers: {len(fast_pairs)} candidate pairs after pm cut", flush=True)
 
-    fast_4dtree = spspace.KDTree(fast_posvel)
+    # Whiten posvel by each dimension's typical (median) combined variance so
+    # the KDTree radius search is itself a real Mahalanobis-scale cut instead
+    # of an arbitrary fixed arcsec box. A flat radius has to stay loose
+    # enough for the worst-measured pairs, which floods dense fields with
+    # spatially-close-but-unrelated stars long before the exact eps cut below
+    # gets a chance to reject them. eps_pad covers pairs whose true combined
+    # variance exceeds this pixel's typical value; the exact recompute+mask
+    # below is unchanged, so this only changes how many candidates the tree
+    # search has to hand it, not which pairs ultimately pass.
+    sigma0 = np.sqrt(np.maximum(np.median(cov, axis=0), 1e-12))
+    fast_4dtree = spspace.KDTree(fast_posvel / sigma0)
+    whitened_radius = config["fast"]["eps"] * config["fast"].get("eps_pad", 3.0)
 
     # Same rationale as the 2D pairing above: query_pairs() over the full 4D
     # posvel space can still be huge before the eps cut, so stream it in
     # batches and keep only pairs that pass the (much tighter) eps threshold.
     i_kept, j_kept, D_kept = [], [], []
     for i_batch, j_batch in _chunked_pairs(
-        fast_4dtree, config["fast"]["linklength"], batch_size, workers=workers, max_degree=max_degree
+        fast_4dtree, whitened_radius, batch_size, workers=workers, max_degree=max_degree
     ):
         diff = fast_posvel[j_batch] - fast_posvel[i_batch]
         invcov = 1.0 / (cov[i_batch] + cov[j_batch])
@@ -364,3 +375,33 @@ if __name__ == "__main__":
         out_degree[i] = out_degree.get(i, 0) + 1
     assert max(out_degree.values()) <= 5, max(out_degree.values())
     print("_chunked_pairs max_degree self-check OK")
+
+    # Whitened-radius search (fast_movers' 4D linking step) must not drop any
+    # pair a brute-force exact Mahalanobis scan would keep, as long as no
+    # pair's combined variance exceeds eps_pad**2 times the pixel's median --
+    # the guarantee eps_pad is meant to provide.
+    n_pts, eps, eps_pad = 300, 2.0, 3.0
+    posvel = rng.uniform(-50, 50, size=(n_pts, 4))
+    med_var = 0.05
+    cov = rng.uniform(0.5 * med_var, 2.0 * med_var, size=(n_pts, 4))  # max/median ratio < eps_pad**2
+
+    i_all, j_all = np.triu_indices(n_pts, k=1)
+    diff = posvel[j_all] - posvel[i_all]
+    invcov = 1.0 / (cov[i_all] + cov[j_all])
+    true_dist = np.sqrt(np.sum(diff * invcov * diff, axis=1))
+    true_matches = {(i, j) for i, j, d in zip(i_all, j_all, true_dist) if d < eps}
+
+    sigma0 = np.sqrt(np.maximum(np.median(cov, axis=0), 1e-12))
+    whitened_tree = spspace.KDTree(posvel / sigma0)
+    found_matches = set()
+    for i_batch, j_batch in _chunked_pairs(whitened_tree, eps * eps_pad, 37):
+        diff = posvel[j_batch] - posvel[i_batch]
+        invcov = 1.0 / (cov[i_batch] + cov[j_batch])
+        dist = np.sqrt(np.sum(diff * invcov * diff, axis=1))
+        mask = dist < eps
+        found_matches.update(zip(i_batch[mask].tolist(), j_batch[mask].tolist()))
+
+    assert found_matches == true_matches, (
+        len(found_matches), len(true_matches), found_matches ^ true_matches
+    )
+    print("whitened-radius self-check OK")
