@@ -25,8 +25,8 @@ pm_lim: 5000 # Maximum proper motion in mas/yr for removal
 pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal
 
 fast:
-  pair_batch_size: 20000 # Query points per batch when streaming candidate pairs (memory vs. speed)
-  max_pair_degree: 200 # Cap neighbors kept per point in pair/link searches; bounds cost in crowded/artifact regions
+  pair_batch_size: 200000 # Query points per batch when streaming candidate pairs (memory vs. speed)
+  max_pair_degree: 2000 # Cap neighbors kept per point in pair/link searches; bounds cost in crowded/artifact regions
   pairlength: 60.0 # Maximum pair length in arcseconds
   linklength: 5.0 # Maximum link length in arcseconds
   min_pairs: 4 # Minimum number of pairs to consider a group
