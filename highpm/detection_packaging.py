@@ -8,11 +8,24 @@ import numpy.lib.recfunctions as rfn
 from highpm.gnomonic_converter import gnomonicJacobian
 
 
-def concatenate_detections(detection_files):
+def concatenate_detections(detection_files, row_filter=None):
+    """Concatenate per-exposure detection files into one array.
+
+    row_filter(data) -> boolean mask, applied to each file's raw rows before
+    concatenation. Passing the err/SNR/healpix cuts in here (rather than
+    applying them after everything is already concatenated) keeps peak memory
+    to the surviving rows instead of every detection from every overlapping
+    exposure -- the difference matters for dense pixels with many overlapping
+    exposures, where most rows get cut anyway.
+    """
     all_detections = []
     for file in detection_files:
         data = fitsio.read(file, ext=1)
         header = fitsio.read_header(file, ext=1)
+        if row_filter is not None:
+            data = data[row_filter(data)]
+            if len(data) == 0:
+                continue
         expnum = int(os.path.basename(file).split(".")[0][-8:])
         # GPR_RA0/GPR_DEC0: the GPR fit's own tangent point (from position_correction's
         # gprHeader), needed downstream to rotate BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR
@@ -30,6 +43,9 @@ def concatenate_detections(detection_files):
             asrecarray=True,
         )
         all_detections.append(data)
+
+    if not all_detections:
+        return np.array([])
 
     detections = np.concatenate(all_detections)
 
@@ -138,11 +154,9 @@ def clean_snr_detections(detections, snr_threshold=5.0):
     return detections[good_detections]
 
 
-def clean_healpix_detections(detections, ipix, nside=32, subside=16):
-    """
-    This function removes detections that are more than 'overlap' degrees away
-    from the edge of the healpixel.
-    """
+def healpix_membership_mask(ra, dec, ipix, nside=32, subside=16):
+    """Boolean mask: which (ra, dec) fall within 'overlap' degrees of the edge
+    of healpixel ipix (i.e. survive clean_healpix_detections' cut)."""
     fine = nside * subside
     # Children of ipix are contiguous in NESTED ordering: parent*ratio^2 + offset.
     ratio2 = subside * subside
@@ -152,13 +166,20 @@ def clean_healpix_detections(detections, ipix, nside=32, subside=16):
     neigh = hp.get_all_neighbours(fine, ipix_sub)  # (8, len(ipix_sub)), -1 padded
     good_subpix = np.unique(np.concatenate([ipix_sub, neigh[neigh >= 0].ravel()]))
 
-    detections_ipix = hp.ang2pix(
-        fine,
-        np.radians(90.0 - detections["BEST_DEC"]),
-        np.radians(detections["BEST_RA"]),
-    )
+    detections_ipix = hp.ang2pix(fine, np.radians(90.0 - dec), np.radians(ra))
 
-    return detections[np.isin(detections_ipix, good_subpix)]
+    return np.isin(detections_ipix, good_subpix)
+
+
+def clean_healpix_detections(detections, ipix, nside=32, subside=16):
+    """
+    This function removes detections that are more than 'overlap' degrees away
+    from the edge of the healpixel.
+    """
+    mask = healpix_membership_mask(
+        detections["BEST_RA"], detections["BEST_DEC"], ipix, nside=nside, subside=subside
+    )
+    return detections[mask]
 
 
 def get_healpix_center(ipix, nside=32):

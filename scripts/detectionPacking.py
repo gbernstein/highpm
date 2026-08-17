@@ -15,12 +15,10 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from highpm.detection_packaging import (
-    clean_err_detections,
-    clean_healpix_detections,
-    clean_snr_detections,
     concatenate_detections,
     get_exposures_near_healpix,
     get_healpix_center,
+    healpix_membership_mask,
     rotate_covariances_to_healpix_frame,
 )
 from highpm.gnomonic_converter import projectGnomonic
@@ -175,20 +173,20 @@ if __name__ == "__main__":
         print(f"No detection files match exposures for HEALPix {healpix}")
         sys.exit(1)
 
+    def row_filter(data):
+        # Same three cuts as clean_err/clean_snr/clean_healpix_detections, applied
+        # per-file so rows outside this healpixel never get held in memory
+        # alongside the rest of a dense pixel's overlapping exposures.
+        err_ok = (data["BEST_RA_ERR"] > 0.0) & (data["BEST_DEC_ERR"] > 0.0)
+        snr_ok = (data["FLUX_PSF"] / data["FLUXERR_PSF"]) >= args.snr_threshold
+        healpix_ok = healpix_membership_mask(
+            data["BEST_RA"], data["BEST_DEC"], healpix, nside=args.nside, subside=args.subside
+        )
+        return err_ok & snr_ok & healpix_ok
+
     print(f"Found {len(detection_files)} detection files. Concatenating...")
-    detections = concatenate_detections(detection_files)
-    print(f"Total detections before cleaning: {len(detections)}")
-
-    detections = clean_err_detections(detections)
-    print(f"Detections after error cleaning: {len(detections)}")
-
-    detections = clean_snr_detections(detections, snr_threshold=args.snr_threshold)
-    print(f"Detections after SNR cleaning: {len(detections)}")
-
-    detections = clean_healpix_detections(
-        detections, healpix, nside=args.nside, subside=args.subside
-    )
-    print(f"Detections after HEALPix cleaning: {len(detections)}")
+    detections = concatenate_detections(detection_files, row_filter=row_filter)
+    print(f"Detections after cleaning: {len(detections)}")
 
     if len(detections) == 0:
         print("No detections remain after cleaning. Exiting.")
