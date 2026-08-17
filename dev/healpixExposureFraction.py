@@ -62,6 +62,11 @@ if __name__ == "__main__":
         )
     )
     parser.add_argument("--pointing-file", help="Path to delveExposures.hdf5 (astropy Table).")
+    parser.add_argument(
+        "--healpix-npy",
+        help="Optional .npy healpixel list (e.g. from dev/healpixExposuresAroundPoint.py); "
+        "restricts the report to just these pixels.",
+    )
     parser.add_argument("--dir", help="Directory to scan for exposures.")
     parser.add_argument(
         "--dir2",
@@ -144,6 +149,9 @@ if __name__ == "__main__":
 
     pixels, total, found, fraction = per_healpix_fraction(pixel_lists, found_mask, args.nside)
     keep = total >= args.min_exposures
+    if args.healpix_npy:
+        wanted = np.load(args.healpix_npy, allow_pickle=True)
+        keep &= np.isin(pixels, wanted)
     pixels, total, found, fraction = pixels[keep], total[keep], found[keep], fraction[keep]
     rows = [row for row in zip(pixels, total, found, fraction) if row[2] > 0]
     for p, t, f, frac in sorted(rows, key=lambda x: (x[3], x[1])):
