@@ -222,7 +222,9 @@ def matchGPRToSkim(gprData, skimData):
     nIdMatched = len(rfn.join_by(("OBJECT_NUMBER", "CCDNUM"), gprData, skimData, jointype="inner"))
 
     if nIdMatched >= MIN_ID_MATCH_FRACTION * len(gprData):
-        return rfn.join_by(("OBJECT_NUMBER", "CCDNUM"), gprData, skimData, jointype="outer")
+        return rfn.join_by(
+            ("OBJECT_NUMBER", "CCDNUM"), gprData, skimData, jointype="inner", usemask=False, asrecarray=True
+        )
 
     print(
         f"ID match between GPR and skim only matched {nIdMatched}/{len(gprData)} rows; "
