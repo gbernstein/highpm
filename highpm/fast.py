@@ -35,15 +35,49 @@ def _chunked_pairs(tree, r, batch_size, workers=1, max_degree=None):
     dropped_edges = 0
     for start in range(0, n, batch_size):
         stop = min(start + batch_size, n)
-        neighbor_lists = tree.query_ball_point(
-            tree.data[start:stop], r=r, workers=workers
-        )
-        if max_degree is not None:
-            for k, nb in enumerate(neighbor_lists):
-                if len(nb) > max_degree:
+        batch_pts = tree.data[start:stop]
+
+        if max_degree is None:
+            neighbor_lists = tree.query_ball_point(batch_pts, r=r, workers=workers)
+        else:
+            # Cheap count-only pass first -- query_ball_point's return_length
+            # path can use subtree-count shortcuts and never materializes the
+            # (possibly millions-long) neighbor list for crowded points.
+            true_counts = tree.query_ball_point(
+                batch_pts, r=r, workers=workers, return_length=True
+            )
+            crowded_mask = true_counts > max_degree
+            sparse_mask = ~crowded_mask
+
+            neighbor_lists = [None] * (stop - start)
+
+            if np.any(sparse_mask):
+                sparse_neighbors = tree.query_ball_point(
+                    batch_pts[sparse_mask], r=r, workers=workers
+                )
+                for k, nb in zip(np.nonzero(sparse_mask)[0], sparse_neighbors):
+                    neighbor_lists[k] = nb
+
+            if np.any(crowded_mask):
+                # Bounded k-NN instead of enumerating the full (potentially
+                # huge) true neighbor list -- that unbounded enumeration is
+                # exactly the cost this rewrite avoids.
+                dist, idx = tree.query(
+                    batch_pts[crowded_mask],
+                    k=max_degree + 1,
+                    distance_upper_bound=r,
+                    workers=workers,
+                )
+                dist = np.atleast_2d(dist)
+                idx = np.atleast_2d(idx)
+                crowded_positions = np.nonzero(crowded_mask)[0]
+                for row, k in enumerate(crowded_positions):
+                    valid = idx[row] != tree.n
+                    nb = idx[row][valid]
+                    neighbor_lists[k] = nb
                     truncated_points += 1
-                    dropped_edges += len(nb) - max_degree
-                    neighbor_lists[k] = nb[:max_degree]
+                    dropped_edges += int(true_counts[k]) - len(nb)
+
         counts = np.fromiter((len(nb) for nb in neighbor_lists), dtype=np.int64, count=stop - start)
         if counts.sum() == 0:
             continue
