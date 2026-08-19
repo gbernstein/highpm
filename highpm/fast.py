@@ -13,7 +13,7 @@ from .utils import arborist, filter_list, new_posvel
 # =============================================================================
 
 
-def _chunked_pairs(tree, r, batch_size, workers=1, max_degree=None):
+def _chunked_pairs(tree, r, batch_size, workers=1):
     """Stream index pairs (i < j) within radius r of a KDTree's own points, a
     batch of query points at a time.
 
@@ -21,63 +21,11 @@ def _chunked_pairs(tree, r, batch_size, workers=1, max_degree=None):
     (tens of GB before any downstream filtering) -- this yields the same
     pairs in bounded-size chunks so a caller can filter/discard each batch
     before moving on.
-
-    max_degree, if given, caps how many neighbors are kept per query point.
-    A crowded clump (bad CCD region, background cluster, duplicate detections)
-    can give a handful of points thousands-to-millions of neighbors, which is
-    what turns one dense healpixel into a multi-hour outlier -- the resulting
-    pair count is roughly O(n * max_degree) instead of O(n * local_density).
-    Neighbors are kept in query_ball_point's own order (not distance-sorted),
-    so this is an arbitrary subset of a point's true neighbors, not nearest.
     """
     n = tree.n
-    truncated_points = 0
-    dropped_edges = 0
     for start in range(0, n, batch_size):
         stop = min(start + batch_size, n)
-        batch_pts = tree.data[start:stop]
-
-        if max_degree is None:
-            neighbor_lists = tree.query_ball_point(batch_pts, r=r, workers=workers)
-        else:
-            # Cheap count-only pass first -- query_ball_point's return_length
-            # path can use subtree-count shortcuts and never materializes the
-            # (possibly millions-long) neighbor list for crowded points.
-            true_counts = tree.query_ball_point(
-                batch_pts, r=r, workers=workers, return_length=True
-            )
-            crowded_mask = true_counts > max_degree
-            sparse_mask = ~crowded_mask
-
-            neighbor_lists = [None] * (stop - start)
-
-            if np.any(sparse_mask):
-                sparse_neighbors = tree.query_ball_point(
-                    batch_pts[sparse_mask], r=r, workers=workers
-                )
-                for k, nb in zip(np.nonzero(sparse_mask)[0], sparse_neighbors):
-                    neighbor_lists[k] = nb
-
-            if np.any(crowded_mask):
-                # Bounded k-NN instead of enumerating the full (potentially
-                # huge) true neighbor list -- that unbounded enumeration is
-                # exactly the cost this rewrite avoids.
-                dist, idx = tree.query(
-                    batch_pts[crowded_mask],
-                    k=max_degree + 1,
-                    distance_upper_bound=r,
-                    workers=workers,
-                )
-                dist = np.atleast_2d(dist)
-                idx = np.atleast_2d(idx)
-                crowded_positions = np.nonzero(crowded_mask)[0]
-                for row, k in enumerate(crowded_positions):
-                    valid = idx[row] != tree.n
-                    nb = idx[row][valid]
-                    neighbor_lists[k] = nb
-                    truncated_points += 1
-                    dropped_edges += int(true_counts[k]) - len(nb)
-
+        neighbor_lists = tree.query_ball_point(tree.data[start:stop], r=r, workers=workers)
         counts = np.fromiter((len(nb) for nb in neighbor_lists), dtype=np.int64, count=stop - start)
         if counts.sum() == 0:
             continue
@@ -86,12 +34,6 @@ def _chunked_pairs(tree, r, batch_size, workers=1, max_degree=None):
         mask = j_idx > i_idx
         if np.any(mask):
             yield i_idx[mask], j_idx[mask]
-    if truncated_points:
-        print(
-            f"_chunked_pairs: capped degree at {max_degree} for {truncated_points} "
-            f"points ({dropped_edges} edges dropped) -- crowded region/artifact likely",
-            flush=True,
-        )
 
 
 def cleanOverlapping(partition, fast_candidates, config):
@@ -203,14 +145,10 @@ def fast_movers(cat, fitter, config):
     # min_sep/max_sep proper-motion cut (a small fraction) are accumulated.
     batch_size = config["fast"].get("pair_batch_size", 20_000)
     workers = config.get("cores", 1)
-    # ponytail: global cap, not per-region -- if a survey turns up healpixels
-    # dense enough that even this ceiling is routinely hit, cap per local
-    # density instead (e.g. scale with detections in the pixel).
-    max_degree = config["fast"].get("max_pair_degree", 200)
 
     pairs_kept, posvel_kept, cov_kept = [], [], []
     for i_idx, j_idx in _chunked_pairs(
-        fast_tree, config["fast"]["pairlength"], batch_size, workers=workers, max_degree=max_degree
+        fast_tree, config["fast"]["pairlength"], batch_size, workers=workers
     ):
         pairs = np.stack([i_idx, j_idx], axis=1)
         posvel, cov_batch, dt, good_pairs = new_posvel(pairs, x, y, t, cov_xy, config)
@@ -256,7 +194,7 @@ def fast_movers(cat, fitter, config):
     # batches and keep only pairs that pass the (much tighter) eps threshold.
     i_kept, j_kept, D_kept = [], [], []
     for i_batch, j_batch in _chunked_pairs(
-        fast_4dtree, whitened_radius, batch_size, workers=workers, max_degree=max_degree
+        fast_4dtree, whitened_radius, batch_size, workers=workers
     ):
         diff = fast_posvel[j_batch] - fast_posvel[i_batch]
         invcov = 1.0 / (cov[i_batch] + cov[j_batch])
@@ -397,18 +335,6 @@ if __name__ == "__main__":
             got.update(zip(i_idx.tolist(), j_idx.tolist()))
         assert got == expected, (batch_size, len(got), len(expected))
     print("_chunked_pairs self-check OK")
-
-    # max_degree caps points-of-truncation-need degree; every capped pair must
-    # still be a real (within-r) pair, and per-point out-degree stays bounded.
-    got_capped = set()
-    for i_idx, j_idx in _chunked_pairs(tree, r, 500, max_degree=5):
-        got_capped.update(zip(i_idx.tolist(), j_idx.tolist()))
-    assert got_capped <= expected
-    out_degree = {}
-    for i, j in got_capped:
-        out_degree[i] = out_degree.get(i, 0) + 1
-    assert max(out_degree.values()) <= 5, max(out_degree.values())
-    print("_chunked_pairs max_degree self-check OK")
 
     # Whitened-radius search (fast_movers' 4D linking step) must not drop any
     # pair a brute-force exact Mahalanobis scan would keep, as long as no
