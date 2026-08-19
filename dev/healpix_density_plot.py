@@ -14,7 +14,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from highpm.cat_reader import read_cat_data, read_cat_header
+from highpm.cat_reader import clean_cat, read_cat_data, read_cat_header
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
@@ -27,6 +27,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cat = read_cat_data(args.catalog)
+    # Same quality cuts PM.py applies before feeding detections to the fitter
+    # (FLAGS/IMAFLAGS_ISO/SPREAD_MODEL) -- otherwise the density map includes
+    # detections the PM code never sees.
+    cat = cat[clean_cat(cat)]
     ra, dec = cat["NEW_RA"], cat["NEW_DEC"]
 
     header = read_cat_header(args.catalog)
