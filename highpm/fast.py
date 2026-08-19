@@ -6,7 +6,7 @@ from sklearn.cluster import DBSCAN
 
 from .multithreader import multi_fit5d
 from .pmfit import err2cov
-from .utils import arborist, filter_list, new_posvel
+from .utils import arborist, filter_list, new_posvel, season_subsample
 
 # =============================================================================
 # Fast mover algorithm
@@ -138,7 +138,49 @@ def fast_movers(cat, fitter, config):
 
     cov_xy = err2cov(cat)
 
-    fast_tree = arborist(x, y)
+    # ponytail: a single object observed in every exposure of every season
+    # contributes C(D,2) same-object pairs to stage 1, and those pairs then
+    # cluster on top of each other in stage 2 (same true PM) for another
+    # ~O(D^2) blowup -- season_sample_frac<1 randomly thins detections within
+    # each season before pairing, capping D per season without touching
+    # min_dt/min_sep (which don't discriminate against a real mover's own
+    # cross-season pairs).
+    #
+    # pair_budget, if set, picks that fraction on the fly: count_neighbors()
+    # gets the exact raw pairlength-pair count in one cheap O(n log n) tree
+    # pass (no pair list materialized), and since independently thinning
+    # detections at rate f drops pair count ~f^2, f = sqrt(budget/raw) is the
+    # frac that lands near budget. A static season_sample_frac still wins if
+    # set below the auto value. Both branches record what was actually used
+    # back into config["fast"], which insert_header() writes verbatim into
+    # this run's *_movers FITS header for after-the-fact auditing.
+    full_tree = arborist(x, y)
+    n = len(x)
+    raw_pairs = int((full_tree.count_neighbors(full_tree, config["fast"]["pairlength"]) - n) // 2)
+
+    pair_budget = config["fast"].get("pair_budget")
+    season_frac = config["fast"].get("season_sample_frac", 1.0)
+    if pair_budget and raw_pairs > pair_budget:
+        auto_frac = float(np.sqrt(pair_budget / raw_pairs))
+        season_frac = min(season_frac, auto_frac)
+
+    config["fast"]["season_raw_pairs_est"] = raw_pairs
+    config["fast"]["season_sample_frac_used"] = season_frac
+
+    if season_frac < 1.0:
+        rng = np.random.default_rng(config["fast"].get("season_sample_seed"))
+        gap_days = config["fast"].get("season_gap", 0.25) * 365.2425
+        subset_idx = season_subsample(cat["MJD"], gap_days, season_frac, rng=rng)
+        print(
+            f"fast_movers: {raw_pairs} raw pairlength pairs estimated, "
+            f"season subsampling kept {len(subset_idx)}/{n} detections "
+            f"for pairing (frac={season_frac:.3f})",
+            flush=True,
+        )
+        fast_tree = arborist(x[subset_idx], y[subset_idx])
+    else:
+        subset_idx = np.arange(n)
+        fast_tree = full_tree
 
     # ponytail: process query points in batches so we never hold every raw
     # pair from the dense field in memory -- only pairs that survive the
@@ -150,6 +192,8 @@ def fast_movers(cat, fitter, config):
     for i_idx, j_idx in _chunked_pairs(
         fast_tree, config["fast"]["pairlength"], batch_size, workers=workers
     ):
+        i_idx = subset_idx[i_idx]
+        j_idx = subset_idx[j_idx]
         pairs = np.stack([i_idx, j_idx], axis=1)
         posvel, cov_batch, dt, good_pairs = new_posvel(pairs, x, y, t, cov_xy, config)
         pairs = pairs[good_pairs]

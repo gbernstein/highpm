@@ -27,6 +27,39 @@ def arborist(xi, eta):
     return tree
 
 
+def season_labels(mjd, gap_days):
+    """Greedy season grouping: a new season starts whenever a point falls
+    more than gap_days past its season's first point."""
+    order = np.argsort(mjd)
+    sm = mjd[order]
+    labels_sorted = np.empty(len(sm), dtype=np.int64)
+    start, sid, n = 0, 0, len(sm)
+    while start < n:
+        end = np.searchsorted(sm, sm[start] + gap_days, side="right")
+        labels_sorted[start:end] = sid
+        sid += 1
+        start = end
+    labels = np.empty(len(sm), dtype=np.int64)
+    labels[order] = labels_sorted
+    return labels
+
+
+def season_subsample(mjd, gap_days, frac, rng=None):
+    """Randomly keep `frac` of detections within each season (grouped by
+    gap_days), to bound per-season pair combinatorics in dense/crowded
+    fast-mover candidate pools. Returns sorted indices into mjd."""
+    if frac >= 1.0:
+        return np.arange(len(mjd))
+    rng = rng if rng is not None else np.random.default_rng()
+    labels = season_labels(mjd, gap_days)
+    keep = []
+    for sid in np.unique(labels):
+        idx = np.flatnonzero(labels == sid)
+        n_keep = max(1, int(round(len(idx) * frac)))
+        keep.append(idx if n_keep >= len(idx) else rng.choice(idx, n_keep, replace=False))
+    return np.sort(np.concatenate(keep))
+
+
 def detections_for_removal(pm_arr, config):
     """Identifies and returns detections for removal based on proper motion
     limits. This function processes an array of proper motion fit results and
@@ -237,4 +270,21 @@ if __name__ == "__main__":
             for _ in range(random.randint(0, 12))
         ]
         assert _canon(filter_list(L)) == _canon(_filter_list_ref(L)), L
+
+    # season_labels: points within gap_days of a season's start share a
+    # label; a lone point past the gap starts a new one.
+    mjd = np.array([0, 1, 2, 100, 101, 200])
+    labels = season_labels(mjd, gap_days=5)
+    assert np.array_equal(labels, [0, 0, 0, 1, 1, 2]), labels
+
+    # season_subsample: frac=1 is a no-op; frac<1 keeps ~frac per season,
+    # never drops a singleton season, and returns real subset indices.
+    assert np.array_equal(season_subsample(mjd, 5, 1.0), np.arange(len(mjd)))
+    rng = np.random.default_rng(0)
+    kept = season_subsample(mjd, 5, 0.5, rng=rng)
+    kept_labels = season_labels(mjd, 5)[kept]
+    assert len(kept) < len(mjd) and len(np.unique(kept)) == len(kept)
+    for sid, n in zip(*np.unique(season_labels(mjd, 5), return_counts=True)):
+        assert np.sum(kept_labels == sid) == max(1, round(n * 0.5))
+    print("season_labels/season_subsample self-check OK")
     print("filter_list self-check OK")

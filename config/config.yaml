@@ -34,6 +34,10 @@ fast:
   eps: 2.0 # DBSCAN epsilon value
   min_dt: 0.8 # Minimum time difference in years
   shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
+  season_sample_frac: 1.0 # Randomly keep this fraction of detections per season before pairing (1.0 = disabled). Lower (e.g. 0.3) for healpixels where dense multi-epoch coverage blows up pair counts. Acts as an upper bound when pair_budget is also set.
+  season_gap: 0.25 # Time gap (years) that starts a new season for season_sample_frac
+  season_sample_seed: null # RNG seed for season_sample_frac subsampling; null = nondeterministic
+  pair_budget: null # Target raw pairlength-pair count; if set, season_sample_frac is auto-lowered on the fly to land near this budget. e.g. 20000000. The frac actually used is recorded in the output FITS header (season_sample_frac_used, season_raw_pairs_est).
 
 fastcheck:
   search_radius: 1.0 # Search radius in arcseconds
