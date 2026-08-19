@@ -31,7 +31,7 @@ if __name__ == "__main__":
     # (FLAGS/IMAFLAGS_ISO/SPREAD_MODEL) -- otherwise the density map includes
     # detections the PM code never sees.
     cat = cat[clean_cat(cat)]
-    ra, dec = cat["NEW_RA"], cat["NEW_DEC"]
+    ra, dec = cat["BEST_RA"], cat["BEST_DEC"]
 
     header = read_cat_header(args.catalog)
     ra0 = header.get("RA0", np.median(ra))
