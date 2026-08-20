@@ -130,19 +130,24 @@ def rotate_covariances_to_healpix_frame(detections, ra0, dec0):
     detections["BEST_DEC_ERR"] = np.sqrt(total_yy)
     detections["BEST_RA_DEC_CORR"] = total_xy / np.sqrt(total_xx * total_yy)
 
-    return rfn.drop_fields(
+    detections = rfn.drop_fields(
         detections,
         ["GPR_RA0", "GPR_DEC0", "ERRAWIN_WORLD", "ERRBWIN_WORLD", "ERRTHETAWIN_J2000"],
     )
 
-
-def clean_err_detections(detections):
-
-    good_detections = (detections["BEST_RA_ERR"] > 0.0) & (
-        detections["BEST_DEC_ERR"] > 0.0
+    # ponytail: the same err_ok check scripts/detectionPacking.py runs before
+    # this function -- reapplied after, since a near-singular GPR Jacobian
+    # (det_gpr ~ 0) or a NaN GPR_RA0/GPR_DEC0 (failed GPR fit) can turn a
+    # valid row's rotated BEST_RA_ERR/BEST_DEC_ERR/BEST_RA_DEC_CORR into
+    # 0/nan/inf, which the pre-rotation check never sees.
+    row_ok = (
+        np.isfinite(detections["BEST_RA_ERR"])
+        & np.isfinite(detections["BEST_DEC_ERR"])
+        & np.isfinite(detections["BEST_RA_DEC_CORR"])
+        & (detections["BEST_RA_ERR"] > 0.0)
+        & (detections["BEST_DEC_ERR"] > 0.0)
     )
-
-    return detections[good_detections]
+    return detections[row_ok]
 
 
 def clean_snr_detections(detections, snr_threshold=5.0):

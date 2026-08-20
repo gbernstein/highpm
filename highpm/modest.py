@@ -81,10 +81,23 @@ def new_modest_mover(sample, cat, config, mode="modest"):
         return None
 
     pairs = pairs[good_pairs]
-    pairs = pairs[dt >= config[mode]["min_dt"]]
-    posvel = posvel[dt >= config[mode]["min_dt"]]
-    cov = cov[dt >= config[mode]["min_dt"]]
-    dt = dt[dt >= config[mode]["min_dt"]]
+    keep = dt >= config[mode]["min_dt"]
+    pairs = pairs[keep]
+    posvel = posvel[keep]
+    cov = cov[keep]
+    dt = dt[keep]
+
+    # ponytail: a handful of detections carry NaN/inf position or error
+    # columns (bad upstream fits); drop any pair touched by one here so the
+    # precomputed distance matrix below never feeds DBSCAN a NaN.
+    finite = np.all(np.isfinite(posvel), axis=1) & np.all(np.isfinite(cov), axis=1)
+    pairs = pairs[finite]
+    posvel = posvel[finite]
+    cov = cov[finite]
+    dt = dt[finite]
+
+    if len(dt) == 0:
+        return None
 
     X = posvel
     Sigma = np.sqrt(cov)
@@ -94,7 +107,9 @@ def new_modest_mover(sample, cat, config, mode="modest"):
         xk = X[k]
         sk2 = Sigma[k] ** 2
         dk = X - xk
-        var_sum = Sigma**2 + sk2
+        # ponytail: floor guards the true 0/0 case (dk==0 and var_sum==0, i.e.
+        # k compared with itself and both have exactly zero reported error).
+        var_sum = np.maximum(Sigma**2 + sk2, 1e-12)
         D[k] = np.sum(dk**2 / var_sum, axis=1)
 
     D = np.sqrt(D)

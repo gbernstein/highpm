@@ -202,7 +202,11 @@ def fast_movers(cat, fitter, config):
         # the pair's Mahalanobis distance to *everything* forgiving in stage 2
         # -- min_dt was declared as required config but never actually enforced,
         # letting short-baseline pairs act as universal connectors.
-        keep = (dt >= config["fast"]["min_dt"]) & np.logical_and(
+        # ponytail: a handful of detections carry NaN/inf position or error
+        # columns (bad upstream fits); drop any pair touched by one here so
+        # the KDTree built from posvel below never sees a non-finite value.
+        finite = np.all(np.isfinite(posvel), axis=1) & np.all(np.isfinite(cov_batch), axis=1)
+        keep = finite & (dt >= config["fast"]["min_dt"]) & np.logical_and(
             np.hypot(posvel[:, 2], posvel[:, 3]) > config["fast"]["min_sep"],
             np.hypot(posvel[:, 2], posvel[:, 3]) < config["fast"]["max_sep"],
         )
@@ -241,7 +245,9 @@ def fast_movers(cat, fitter, config):
         fast_4dtree, whitened_radius, batch_size, workers=workers
     ):
         diff = fast_posvel[j_batch] - fast_posvel[i_batch]
-        invcov = 1.0 / (cov[i_batch] + cov[j_batch])
+        # ponytail: floor guards 0*inf=nan when two pairs share identical
+        # posvel and both report exactly zero variance.
+        invcov = 1.0 / np.maximum(cov[i_batch] + cov[j_batch], 1e-12)
         dist = np.sqrt(np.sum(diff * invcov * diff, axis=1))
 
         mask = dist < config["fast"]["eps"]
