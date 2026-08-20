@@ -38,7 +38,7 @@ def _files_in_pixels(directory, pixels, pattern="*.fits"):
             yield f, idx
 
 
-def load_movers(pmcatalog_dir, nside, pixels, pattern="*.fits"):
+def load_movers(pmcatalog_dir, nside, pixels, pattern="*.fits", exts=MOVER_EXTS):
     found = list(_files_in_pixels(pmcatalog_dir, pixels, pattern))
     print(f"[load_movers] {len(pixels)} pixels requested, {len(found)} files found in {pmcatalog_dir} "
           f"(pattern={pattern!r})")
@@ -48,15 +48,15 @@ def load_movers(pmcatalog_dir, nside, pixels, pattern="*.fits"):
 
     parts = []
     for f, hp_idx in found:
-        exts = []
-        for ext in MOVER_EXTS:
+        exts_data = []
+        for ext in exts:
             try:
-                exts.append(fitsio.read(f, ext=ext))
+                exts_data.append(fitsio.read(f, ext=ext))
             except OSError:
                 pass
-        if not exts:
+        if not exts_data:
             continue
-        movers = np.concatenate(exts)
+        movers = np.concatenate(exts_data)
         # Keep only movers that truly belong to this pixel (some fall in a
         # neighboring file near the pixel edge).
         in_pixel = hp.ang2pix(nside, movers["ra"], movers["dec"], lonlat=True) == hp_idx
