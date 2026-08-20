@@ -86,8 +86,8 @@ def generate_fake_star_catalog(
     ra, dec = gnomonic_plate2sky(xi, eta, ra_center, dec_center)
 
     # Generate proper motions
-    uniform_pm = rng.uniform(0, 20, int(n_stars * 0.05))
-    exp_pm = rng.exponential(1.0 , len(ra) - int(n_stars * 0.05))
+    uniform_pm = rng.uniform(0, 20, int(n_stars * 0.02))
+    exp_pm = rng.exponential(0.05, len(ra) - int(n_stars * 0.02))
     exp_pm = np.clip(exp_pm, 0, 20)
 
     pm = np.concatenate([uniform_pm, exp_pm])
