@@ -19,7 +19,7 @@ modest:
   min_pairs: 4 # Minimum number of pairs to consider a group
   shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
   large_group_size: 100 # Groups with >= this many detections are fit in a separate, less-parallel pass
-  large_group_cores_divisor: 4 # cores // this value = worker count for the large-group pass
+  large_group_cores_divisor: 1 # cores // this value = worker count for the large-group pass. Lower (e.g. 4) trades core usage for a smaller peak-memory spike: each worker's DBSCAN matrix is ~8*(n*(n-1)/2)^2 bytes for an n-detection group (~1.5GB at n=166), so cores_divisor=1 x cores concurrent large groups can spike to cores x that. Raise the divisor again if a healpixel has denser large groups than hp11002 (max ~150) and OOMs.
 
 pm_lim: 5000 # Maximum proper motion in mas/yr for removal
 pm_err_lim: 50 # Maximum proper motion error in mas/yr for removal

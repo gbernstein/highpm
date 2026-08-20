@@ -56,14 +56,23 @@ def multithreader(func, lol, cat, config, fitting=False):
     if np.any([key not in config for key in config_reqs]):
         raise ValueError(f"Missing required config keys: {config_reqs}")
 
+    cores = config["cores"]
+    # config["chunksize"] is a per-call upper bound, tuned for the biggest job
+    # (hundreds of thousands of small items). When a call has few items relative
+    # to cores*chunksize (e.g. a filtered "large items" pass), that bound alone
+    # collapses the work into fewer chunks than there are workers, leaving most
+    # cores idle for the whole call. Rescale down so the work divides evenly
+    # across every worker (one chunk per core).
+    chunksize = max(1, min(config["chunksize"], -(-len(lol) // cores)))
+
     with Pool(
-        processes=config["cores"],
+        processes=cores,
         initializer=_init_worker,
         initargs=(func, cat, config, fitting),
     ) as pool:
         ls_out = list(
             tqdm.tqdm(
-                pool.imap_unordered(_apply, lol, chunksize=config["chunksize"]),
+                pool.imap_unordered(_apply, lol, chunksize=chunksize),
                 total=len(lol),
             )
         )
