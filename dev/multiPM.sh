@@ -1,7 +1,7 @@
 #!/usr/bin/zsh
 #SBATCH --job-name=PM                                                    # Job name
 #SBATCH --cpus-per-task=32                                               # CPUs per task
-#SBATCH --mem=128gb                                                      # Job memory request
+#SBATCH --mem=64gb                                                      # Job memory request
 #SBATCH --time=2:00:00                                                   # Time limit hrs:min:sec
 #SBATCH --output=/home2/vwetzell/ProperMotion_RetII/pm_auxnew00/out_%a.log     # Output log (must exist before submit)
 #SBATCH --error=/home2/vwetzell/ProperMotion_RetII/pm_auxnew00/err_%a.err      # Error log (must exist before submit)
