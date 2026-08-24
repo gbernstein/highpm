@@ -15,10 +15,10 @@ source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 
 python /home2/vwetzell/gitrepos/highpm/scripts/positionCorrection.py \
     --skims-path "/data8/shared/decampm/[GRIZ]/" \
-    --gpr-path "/data8/shared/decampm/prev_des/[griz]/" \
+    --gpr-path "/data8/shared/decampm/delve_processed_exposures/cat/[griz]/" \
     --output-path /home2/vwetzell/ProperMotion_Sculptor/PositionCorrectedExposureCatalog_8deg/ \
     --des-exposures /home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5 \
-    --processes 4 \
+    --processes 1 \
     --exposures-npy /home2/vwetzell/ProperMotion_Sculptor/sculptor8deg_exposures.npy \
     --index ${SLURM_ARRAY_TASK_ID} \
     --chunk-size 2
