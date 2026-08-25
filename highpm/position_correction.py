@@ -371,12 +371,19 @@ def process_exposure(expnum, skimsPath, gprPath, outputPath):
 
     joinedSkimGPRData = matchGPRToSkim(gprData, skimData)
 
-    updatedData = sky2bestSky(
-        joinedSkimGPRData,
-        expnum,
-        gprHeader["RA0"],
-        gprHeader["DEC0"],
-    )
+    try:
+        updatedData = sky2bestSky(
+            joinedSkimGPRData,
+            expnum,
+            gprHeader["RA0"],
+            gprHeader["DEC0"],
+        )
+    except ValueError as e:
+        # e.g. pixmappy has no WCS solution for this exposure -- a permanent
+        # failure, not a transient one. Skip it rather than letting the whole
+        # multiprocessing chunk (and any other exposures batched with it) die.
+        print(f"Skipping exposure {expnum}: {e}")
+        return
 
     # NEW_RA/NEW_DEC are now redundant with BEST_RA/BEST_DEC (sky2bestSky just
     # copies them through, since the GPR fit already used each detection's
