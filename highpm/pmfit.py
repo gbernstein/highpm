@@ -177,6 +177,32 @@ def err2cov(temp_cat):
     ).T
 
 
+def error_size(temp_cat):
+    """Per-detection linear error-size estimate: det(covariance)^(1/4).
+
+    err2cov() returns the full combined ERRWIN+GPR covariance (cov_xx, cov_yy,
+    cov_xy) in arcsec^2. sqrt(det(cov)) = ra_err*dec_err*sqrt(1-corr^2) is
+    proportional to the 1-sigma error-ellipse area (units arcsec^2) -- to get
+    a linear (arcsec) size comparable to a single axis error, take the sqrt
+    again: det(cov)^(1/4). Properly accounts for the RA/Dec correlation term,
+    unlike a naive quadrature sum of the two axis errors.
+
+    Parameters
+    ----------
+    temp_cat : np.ndarray
+        Catalog with 'BEST_RA_ERR', 'BEST_DEC_ERR', 'BEST_RA_DEC_CORR'.
+
+    Returns
+    -------
+    np.ndarray of float64, shape (len(temp_cat),)
+        Error-size estimate in arcsec, one per row of temp_cat.
+    """
+    cov = err2cov(temp_cat)
+    det = cov[:, 0] * cov[:, 1] - cov[:, 2] ** 2
+    det = np.clip(det, 0, None)
+    return det**0.25
+
+
 def count_seasons(mjd, dt):
     mjd_sorted = np.sort(mjd)
 

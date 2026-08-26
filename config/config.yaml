@@ -12,6 +12,8 @@ chunksize: 1000 # Size of chunks for parallel processing
 
 n_modests: 3 # Number of modest proper motion iterations to perform
 
+max_exposures_per_month: 15 # Cap exposures used per calendar month within a healpixel. When a month has more exposures than this, keep only this many, ranked by median error_size() (det(Cov)^0.25, highpm/pmfit.py) among each exposure's own 5-50 mas-band detections -- the astrometrically best exposures survive. Some Sculptor-core healpixels have single months with 50-90+ exposures from deep repeated-imaging campaigns, combinatorially inflating downstream friends-of-friends group sizes. Measured on hp09413: cap=15 cuts large modest groups from 16306 to 52 (99.7%) and max group size from 236 to 112, at the cost of keeping only 47% of cleaned detections -- a real completeness tradeoff, not just a performance knob. Set to null to disable (no thinning). cap=10 eliminates large groups entirely (max size 85) if 15 still isn't enough on some pixel.
+
 modest:
   linklength: 0.5 # Maximum link length in arcseconds
   min_dt: 0.8 # Minimum time difference in years

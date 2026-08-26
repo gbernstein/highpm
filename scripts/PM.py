@@ -21,7 +21,7 @@ import fitsio
 import numpy as np
 import yaml
 
-from highpm.cat_reader import clean_cat
+from highpm.cat_reader import clean_cat, thin_exposures_by_month
 from highpm.fast import fast_movers
 from highpm.fits_writer import output_fits
 from highpm.modest import new_modest_fitter
@@ -107,6 +107,13 @@ def run_pm(
     cat_idx = np.arange(len(cat))[cleanmask]
     cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
+
+    max_exp_per_month = config.get("max_exposures_per_month")
+    if max_exp_per_month is not None:
+        thinmask = thin_exposures_by_month(cat, max_exp_per_month)
+        cat_idx = cat_idx[thinmask]
+        cat = cat[thinmask]
+        print(f"Detections after exposure-per-month thinning: {len(cat)}")
 
     fitting = config["fitting"]
 
