@@ -170,8 +170,14 @@ def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
         extval = wavg_extended_class_y6a2(
             catname["SPREAD_MODEL"], catname["SPREADERR_MODEL"]
         )
-        cleanmask &= extval != 3
-        # cleanmask &= extval != 2
+        # ponytail: extval<=1 (high-confidence + likely star, -9 failures
+        # still pass through same as before) instead of just !=3 -- crowded
+        # Sculptor-core groups were found to be dominated by extval==2
+        # ("likely galaxy") detections (e.g. one 239-detection group was only
+        # 34% extval==0), inflating friends-of-friends large-group counts
+        # with astrometrically noisy extended/blended sources this pipeline
+        # isn't trying to measure proper motions for anyway.
+        cleanmask &= extval <= 1
 
         # print(np.sum(cleanmask), "detections after Spread Model cleaning.")
 
