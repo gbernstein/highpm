@@ -137,7 +137,15 @@ def new_modest_mover(sample, cat, config, mode="modest"):
         tree = spspace.KDTree(X / sigma0)
         eps_pad = config[mode].get("eps_pad", 3.0)
         whitened_radius = config[mode]["eps"] * eps_pad
-        batch_size = config[mode].get("pair_batch_size", 20_000)
+        # ponytail: a large group's whole pair-point set (~16k-29k) is smaller
+        # than fast.py's pair_batch_size default (20_000, sized for a
+        # multi-million-point global field) -- so chunked_pairs never actually
+        # split a dense group into multiple batches, and each of lines
+        # 145/148/149 below allocated one candidate-sized temp array per
+        # group (measured: single dense groups spiking several GB). A batch
+        # size scaled to this group's own density, not the global field's,
+        # keeps each batch's temp arrays bounded regardless of group density.
+        batch_size = config[mode].get("large_group_batch_size", 2_000)
         workers = config.get("cores", 1)
 
         i_kept, j_kept, d_kept = [], [], []
