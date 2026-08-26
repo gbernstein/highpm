@@ -1,3 +1,4 @@
+import ctypes
 from functools import partial
 
 import numpy as np
@@ -9,6 +10,22 @@ from .friends_of_friends import query_pairs_groups
 from .multithreader import multi_fit5d, multithreader
 from .pmfit import err2cov
 from .utils import arborist, chunked_pairs, filter_list, new_posvel
+
+
+def _malloc_trim():
+    """Release freed-but-retained glibc heap back to the OS.
+
+    A long-lived Pool worker churning through many large groups' KDTree and
+    sparse-matrix temp arrays doesn't get this memory back automatically --
+    glibc keeps freed arenas around for reuse rather than returning pages to
+    the kernel, and that retained memory was measured (memray) to compound
+    across a worker's run even after the per-group batch-size fix bounded
+    any single group's peak.
+    """
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:
+        pass  # non-glibc platform (e.g. macOS); no-op
 
 # =============================================================================
 # New Slow / Modest Mover algorithm
@@ -107,7 +124,8 @@ def new_modest_mover(sample, cat, config, mode="modest"):
     indices = np.column_stack((sample[pairs[:, 0]], sample[pairs[:, 1]]))
 
     large_threshold = config[mode].get("large_group_size", 100)
-    if len(sample) < large_threshold:
+    is_large = len(sample) >= large_threshold
+    if not is_large:
         X = posvel
         Sigma = np.sqrt(cov)
 
@@ -146,7 +164,13 @@ def new_modest_mover(sample, cat, config, mode="modest"):
         # size scaled to this group's own density, not the global field's,
         # keeps each batch's temp arrays bounded regardless of group density.
         batch_size = config[mode].get("large_group_batch_size", 2_000)
-        workers = config.get("cores", 1)
+        # ponytail: this already runs inside one of large_group_cores_divisor's
+        # process-level Pool workers -- threading each small per-group batch
+        # search on top of that is nested oversubscription (N processes x 32
+        # threads each), not real parallelism, and was the likely source of
+        # the concurrent-run OOM that a single-process sequential replay of
+        # the same groups didn't reproduce.
+        workers = 1
 
         i_kept, j_kept, d_kept = [], [], []
         for i_batch, j_batch in chunked_pairs(tree, whitened_radius, batch_size, workers=workers):
@@ -162,6 +186,7 @@ def new_modest_mover(sample, cat, config, mode="modest"):
                 d_kept.append(d[mask])
 
         if not i_kept:
+            _malloc_trim()
             return None
 
         i_idx = np.concatenate(i_kept)
@@ -199,9 +224,13 @@ def new_modest_mover(sample, cat, config, mode="modest"):
             obj_list.append(cluster_indices.tolist())
 
     if len(obj_list) == 0:
+        if is_large:
+            _malloc_trim()
         return None
 
     obj_list = filter_list(obj_list)
+    if is_large:
+        _malloc_trim()
     return obj_list
 
 
@@ -270,6 +299,15 @@ def new_modest_fitter(cat, fitter, config):
 
     small_groups = [g for g in modest_groups if len(g) < large_threshold]
     large_groups = [g for g in modest_groups if len(g) >= large_threshold]
+    # ponytail: large_groups' order comes straight out of connected_components,
+    # so density likely correlates with list position (same dense region's
+    # groups get consecutive labels). Pool.imap_unordered dispatches strictly
+    # in list order regardless of chunksize, so workers pulling from an
+    # unshuffled list all pass through the same dense stretch together
+    # (measured via memray --follow-fork: 4 workers peaking 5.5-9.8GB each on
+    # a natural-order prefix). Shuffling removes the positional correlation
+    # chunksize can't fix on its own.
+    np.random.default_rng(0).shuffle(large_groups)
 
     partial_new_modest_mover = partial(new_modest_mover, mode="modest")
 
@@ -281,7 +319,20 @@ def new_modest_fitter(cat, fitter, config):
             f"{len(large_groups)} large modest groups (>= {large_threshold} "
             f"detections); running with {large_cores} cores."
         )
-        large_config = dict(config, cores=large_cores)
+        # ponytail: multithreader's default chunksize (config["chunksize"],
+        # tuned for the small-group pass's ~229k tiny tasks) hands each
+        # worker a large *contiguous* slice of large_groups. large_groups'
+        # order comes straight out of connected_components, so structurally
+        # similar (and similarly dense) groups tend to land next to each
+        # other -- a worker's whole chunk can end up correlated-dense instead
+        # of diluted, stacking peaks within one process (measured via memray
+        # --follow-fork on the real Pool: 4 workers peaking at 4.8-12GB each
+        # despite the per-group batch-size fix already bounding any single
+        # group). A small chunksize spreads consecutive groups across
+        # workers instead of concentrating them; dispatch overhead is
+        # negligible since each large group's own work is nontrivial.
+        large_chunksize = config["modest"].get("large_group_chunksize", 1)
+        large_config = dict(config, cores=large_cores, chunksize=large_chunksize)
         modest_pm_ls += multithreader(
             partial_new_modest_mover, large_groups, cat, large_config
         )
