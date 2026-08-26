@@ -1,12 +1,14 @@
 from functools import partial
 
 import numpy as np
+import scipy.spatial as spspace
+from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.cluster import DBSCAN
 
 from .friends_of_friends import find_friend, friends_of_friends
 from .multithreader import multi_fit5d, multithreader
 from .pmfit import err2cov
-from .utils import arborist, filter_list, new_posvel
+from .utils import arborist, chunked_pairs, filter_list, new_posvel
 
 # =============================================================================
 # New Slow / Modest Mover algorithm
@@ -58,6 +60,9 @@ def new_modest_mover(sample, cat, config, mode="modest"):
      - Requires external functions: `err2cov`, `new_posvel`, and `filter_list`.
      - Assumes the catalog fields are in degrees and converts them to
        arcseconds.
+     - Groups with `len(sample) >= config[mode].get("large_group_size", 100)`
+       use a sparse, chunked distance matrix instead of the dense one, to
+       bound memory on large groups.
     """
 
     config_reqs = ["mjd_ref", "min_dt", "eps", "min_pairs", "n_detections"]
@@ -99,22 +104,67 @@ def new_modest_mover(sample, cat, config, mode="modest"):
     if len(dt) == 0:
         return None
 
-    X = posvel
-    Sigma = np.sqrt(cov)
-
-    D = np.zeros((len(dt), len(dt)))
-    for k in range(len(dt)):
-        xk = X[k]
-        sk2 = Sigma[k] ** 2
-        dk = X - xk
-        # ponytail: floor guards the true 0/0 case (dk==0 and var_sum==0, i.e.
-        # k compared with itself and both have exactly zero reported error).
-        var_sum = np.maximum(Sigma**2 + sk2, 1e-12)
-        D[k] = np.sum(dk**2 / var_sum, axis=1)
-
-    D = np.sqrt(D)
-
     indices = np.column_stack((sample[pairs[:, 0]], sample[pairs[:, 1]]))
+
+    large_threshold = config[mode].get("large_group_size", 100)
+    if len(sample) < large_threshold:
+        X = posvel
+        Sigma = np.sqrt(cov)
+
+        D = np.zeros((len(dt), len(dt)))
+        for k in range(len(dt)):
+            xk = X[k]
+            sk2 = Sigma[k] ** 2
+            dk = X - xk
+            # ponytail: floor guards the true 0/0 case (dk==0 and var_sum==0,
+            # i.e. k compared with itself and both have exactly zero reported
+            # error).
+            var_sum = np.maximum(Sigma**2 + sk2, 1e-12)
+            D[k] = np.sum(dk**2 / var_sum, axis=1)
+
+        D = np.sqrt(D)
+    else:
+        # ponytail: dense D above is O(n_pairs^2) = O(len(sample)^4) -- for
+        # ~240-detection groups (Sculptor-core healpixels) that's a
+        # multi-GB-per-group matrix, and with several groups in flight across
+        # worker processes it OOMs the cluster. Mirror fast.py's
+        # whitened-KDTree + chunked-candidate-search + exact-recompute +
+        # sparse-matrix pattern instead: DBSCAN with a sparse precomputed
+        # matrix treats any pair absent from it as farther than eps, which is
+        # exactly what the exact-recompute-then-eps-cut below guarantees.
+        X = posvel
+        sigma0 = np.sqrt(np.maximum(np.median(cov, axis=0), 1e-12))
+        tree = spspace.KDTree(X / sigma0)
+        eps_pad = config[mode].get("eps_pad", 3.0)
+        whitened_radius = config[mode]["eps"] * eps_pad
+        batch_size = config[mode].get("pair_batch_size", 20_000)
+        workers = config.get("cores", 1)
+
+        i_kept, j_kept, d_kept = [], [], []
+        for i_batch, j_batch in chunked_pairs(tree, whitened_radius, batch_size, workers=workers):
+            diff = X[j_batch] - X[i_batch]
+            # ponytail: floor guards 0*inf=nan when two pairs share identical
+            # posvel and both report exactly zero variance.
+            invvar = 1.0 / np.maximum(cov[i_batch] + cov[j_batch], 1e-12)
+            d = np.sqrt(np.sum(diff * invvar * diff, axis=1))
+            mask = d < config[mode]["eps"]
+            if np.any(mask):
+                i_kept.append(i_batch[mask])
+                j_kept.append(j_batch[mask])
+                d_kept.append(d[mask])
+
+        if not i_kept:
+            return None
+
+        i_idx = np.concatenate(i_kept)
+        j_idx = np.concatenate(j_kept)
+        d_all = np.concatenate(d_kept)
+
+        rows = np.concatenate([i_idx, j_idx])
+        cols = np.concatenate([j_idx, i_idx])
+        data = np.concatenate([d_all, d_all])
+
+        D = csr_matrix(coo_matrix((data, (rows, cols)), shape=(len(dt), len(dt))))
 
     clustering = DBSCAN(
         eps=config[mode]["eps"],

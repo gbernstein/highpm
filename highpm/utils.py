@@ -60,6 +60,29 @@ def season_subsample(mjd, gap_days, frac, rng=None):
     return np.sort(np.concatenate(keep))
 
 
+def chunked_pairs(tree, r, batch_size, workers=1):
+    """Stream index pairs (i < j) within radius r of a KDTree's own points, a
+    batch of query points at a time.
+
+    tree.query_pairs(r) materializes every pair in the dense field at once
+    (tens of GB before any downstream filtering) -- this yields the same
+    pairs in bounded-size chunks so a caller can filter/discard each batch
+    before moving on.
+    """
+    n = tree.n
+    for start in range(0, n, batch_size):
+        stop = min(start + batch_size, n)
+        neighbor_lists = tree.query_ball_point(tree.data[start:stop], r=r, workers=workers)
+        counts = np.fromiter((len(nb) for nb in neighbor_lists), dtype=np.int64, count=stop - start)
+        if counts.sum() == 0:
+            continue
+        i_idx = np.repeat(np.arange(start, stop), counts)
+        j_idx = np.concatenate(neighbor_lists)
+        mask = j_idx > i_idx
+        if np.any(mask):
+            yield i_idx[mask], j_idx[mask]
+
+
 def detections_for_removal(pm_arr, config):
     """Identifies and returns detections for removal based on proper motion
     limits. This function processes an array of proper motion fit results and

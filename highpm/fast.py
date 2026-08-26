@@ -6,34 +6,11 @@ from sklearn.cluster import DBSCAN
 
 from .multithreader import multi_fit5d
 from .pmfit import err2cov
-from .utils import arborist, filter_list, new_posvel, season_subsample
+from .utils import arborist, chunked_pairs, filter_list, new_posvel, season_subsample
 
 # =============================================================================
 # Fast mover algorithm
 # =============================================================================
-
-
-def _chunked_pairs(tree, r, batch_size, workers=1):
-    """Stream index pairs (i < j) within radius r of a KDTree's own points, a
-    batch of query points at a time.
-
-    tree.query_pairs(r) materializes every pair in the dense field at once
-    (tens of GB before any downstream filtering) -- this yields the same
-    pairs in bounded-size chunks so a caller can filter/discard each batch
-    before moving on.
-    """
-    n = tree.n
-    for start in range(0, n, batch_size):
-        stop = min(start + batch_size, n)
-        neighbor_lists = tree.query_ball_point(tree.data[start:stop], r=r, workers=workers)
-        counts = np.fromiter((len(nb) for nb in neighbor_lists), dtype=np.int64, count=stop - start)
-        if counts.sum() == 0:
-            continue
-        i_idx = np.repeat(np.arange(start, stop), counts)
-        j_idx = np.concatenate(neighbor_lists)
-        mask = j_idx > i_idx
-        if np.any(mask):
-            yield i_idx[mask], j_idx[mask]
 
 
 def cleanOverlapping(partition, fast_candidates, config):
@@ -189,7 +166,7 @@ def fast_movers(cat, fitter, config):
     workers = config.get("cores", 1)
 
     pairs_kept, posvel_kept, cov_kept = [], [], []
-    for i_idx, j_idx in _chunked_pairs(
+    for i_idx, j_idx in chunked_pairs(
         fast_tree, config["fast"]["pairlength"], batch_size, workers=workers
     ):
         i_idx = subset_idx[i_idx]
@@ -241,7 +218,7 @@ def fast_movers(cat, fitter, config):
     # posvel space can still be huge before the eps cut, so stream it in
     # batches and keep only pairs that pass the (much tighter) eps threshold.
     i_kept, j_kept, D_kept = [], [], []
-    for i_batch, j_batch in _chunked_pairs(
+    for i_batch, j_batch in chunked_pairs(
         fast_4dtree, whitened_radius, batch_size, workers=workers
     ):
         diff = fast_posvel[j_batch] - fast_posvel[i_batch]
@@ -381,7 +358,7 @@ if __name__ == "__main__":
     expected = {tuple(sorted(p)) for p in tree.query_pairs(r)}
     for batch_size in (1, 7, 500, 10_000):
         got = set()
-        for i_idx, j_idx in _chunked_pairs(tree, r, batch_size):
+        for i_idx, j_idx in chunked_pairs(tree, r, batch_size):
             got.update(zip(i_idx.tolist(), j_idx.tolist()))
         assert got == expected, (batch_size, len(got), len(expected))
     print("_chunked_pairs self-check OK")
@@ -404,7 +381,7 @@ if __name__ == "__main__":
     sigma0 = np.sqrt(np.maximum(np.median(cov, axis=0), 1e-12))
     whitened_tree = spspace.KDTree(posvel / sigma0)
     found_matches = set()
-    for i_batch, j_batch in _chunked_pairs(whitened_tree, eps * eps_pad, 37):
+    for i_batch, j_batch in chunked_pairs(whitened_tree, eps * eps_pad, 37):
         diff = posvel[j_batch] - posvel[i_batch]
         invcov = 1.0 / (cov[i_batch] + cov[j_batch])
         dist = np.sqrt(np.sum(diff * invcov * diff, axis=1))
