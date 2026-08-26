@@ -5,7 +5,7 @@ import scipy.spatial as spspace
 from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.cluster import DBSCAN
 
-from .friends_of_friends import find_friend, friends_of_friends
+from .friends_of_friends import query_pairs_groups
 from .multithreader import multi_fit5d, multithreader
 from .pmfit import err2cov
 from .utils import arborist, chunked_pairs, filter_list, new_posvel
@@ -231,7 +231,7 @@ def new_modest_fitter(cat, fitter, config):
      Notes
      -----
      Requires the following functions to be defined elsewhere: `arborist`,
-     `find_friend`, `friends_of_friends`, `multithreader`, `new_modest_mover`,
+     `query_pairs_groups`, `multithreader`, `new_modest_mover`,
      and `multi_fit5d`. The variable `n_detections` must also be defined in the
      scope.
     """
@@ -245,8 +245,7 @@ def new_modest_fitter(cat, fitter, config):
     linklength = config["modest"]["linklength"] / 3600.0
 
     modest_tree = arborist(cat["XI"], cat["ETA"])
-    modest_friends = find_friend(modest_tree, linklength, cores=config["cores"])
-    modest_groups = friends_of_friends(modest_friends)
+    modest_groups = query_pairs_groups(modest_tree, linklength)
 
     print(f"Initial modest mover groups found: {len(modest_groups)}")
 
