@@ -22,16 +22,28 @@ import numpy as np
 
 
 def _intersect_exposures(skims_path: str, gpr_path: str) -> np.ndarray:
+    skim_files = glob(os.path.join(skims_path, "D*.fits"))
     skim_expnums = {
         int(m.group(1))
-        for f in glob(os.path.join(skims_path, "D*.fits"))
+        for f in skim_files
         if (m := re.search(r"(\d{8})(?=_)", os.path.basename(f)))
     }
+    gpr_files = glob(os.path.join(gpr_path, "gpr_*_*.fits"))
     gpr_expnums = {
         int(m.group(1))
-        for f in glob(os.path.join(gpr_path, "gpr_*_*.fits"))
+        for f in gpr_files
         if (m := re.search(r"(\d{7})(?=_[griz]\.fits$)", os.path.basename(f)))
     }
+    if not skim_expnums:
+        raise SystemExit(
+            f"No skim exposures found. Checked pattern 'D*.fits' under {skims_path!r} "
+            f"({len(skim_files)} files matched glob, 0 parsed an expnum)."
+        )
+    if not gpr_expnums:
+        raise SystemExit(
+            f"No GPR exposures found. Checked pattern 'gpr_*_<band>.fits' under {gpr_path!r} "
+            f"({len(gpr_files)} files matched glob, 0 parsed an expnum)."
+        )
     return np.array(sorted(skim_expnums & gpr_expnums), dtype=int)
 
 
