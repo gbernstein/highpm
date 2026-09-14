@@ -15,8 +15,8 @@ AUXDIR=/data8/shared/decampm/PMSculptor/logs/poscorr
 source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 
 python /home2/vwetzell/gitrepos/highpm/scripts/positionCorrection.py \
-    --skims-path "/data8/shared/decampm/[GRIZ]/" \
-    --gpr-path "/data8/shared/decampm/GPR2/CAT/[GRIZ]/" \
+    --skims-path "/data8/shared/decampm/[griz]/" \
+    --gpr-path "/data8/shared/decampm/GPR2/CAT/[griz]/" \
     --output-path /data8/shared/decampm/PMSculptor/PositionCorrectedExposureCatalog/ \
     --des-exposures /home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5 \
     --processes 1 \

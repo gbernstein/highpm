@@ -10,8 +10,8 @@ set -euo pipefail
 
 REPO=/home2/vwetzell/gitrepos/highpm
 BASE=/data8/shared/decampm/PMSculptor
-SKIMS_PATH="/data8/shared/decampm/[GRIZ]/"
-GPR_PATH="/data8/shared/decampm/GPR2/CAT/[GRIZ]/"
+SKIMS_PATH="/data8/shared/decampm/[griz]/"
+GPR_PATH="/data8/shared/decampm/GPR2/CAT/[griz]/"
 EXPOSURES_NPY="$BASE/pmsculptor_exposures.npy"
 HEALPIX_NPY="$BASE/pmsculptor_healpix.npy"
 POSCORR_OUT="$BASE/PositionCorrectedExposureCatalog/"
