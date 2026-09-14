@@ -236,7 +236,7 @@ def fit5d(
     Parameters
     ----------
     indices : array_like
-        Indices of the catalog entries to use for fitting.
+        The catalog entries to use for fitting.
     cat : np.ndarray
         Catalog containing the data to be fit. Must support row removal and
         column access by name.

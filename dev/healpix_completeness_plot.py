@@ -19,15 +19,25 @@ from healpix_region_data import disc_pixels, load_coadd, load_movers, match_to_c
 def completeness(
     ra0, dec0, radius, pmcatalog_dir, coadd_dir, gaia_file=None, nside=32,
     match_arcsec=0.1, mag_col="PSF_MAG_APER_8_G", mag_range=(18, 28), bins=100,
-    pm_pattern="*.fits", coadd_pattern="*.fits",
+    pm_pattern="*.fits", coadd_pattern="*.fits", ext_mash_max=1,
+    min_snr=None, err_col=None, max_pm_err2=None,
 ):
     pixels = disc_pixels(nside, ra0, dec0, radius)
     movers = load_movers(pmcatalog_dir, nside, pixels, pattern=pm_pattern)
+    if max_pm_err2 is not None:
+        # c_vxvx/c_vyvy are sigma_pmra^2/sigma_pmdec^2 in arcsec^2/yr^2
+        movers = movers[(movers["c_vxvx"] + movers["c_vyvy"]) < max_pm_err2]
     coadd = load_coadd(coadd_dir, pixels, pattern=coadd_pattern)
 
     mover_matched = match_to_coadd(movers, coadd, match_arcsec)
-    stars_matched = mover_matched[mover_matched["EXT_MASH"] <= 1]
-    coadd_stars = coadd[coadd["EXT_MASH"] <= 1]
+    star_sel = mover_matched["EXT_MASH"] <= ext_mash_max
+    coadd_sel = coadd["EXT_MASH"] <= ext_mash_max
+    if min_snr is not None:
+        # SNR ~ 1.0857 / mag_err (delta-mag to delta-flux)
+        star_sel &= (1.0857 / mover_matched[err_col]) >= min_snr
+        coadd_sel &= (1.0857 / coadd[err_col]) >= min_snr
+    stars_matched = mover_matched[star_sel]
+    coadd_stars = coadd[coadd_sel]
 
     coadd_hist, edges = np.histogram(coadd_stars[mag_col], bins=bins, range=mag_range)
     mover_hist, _ = np.histogram(stars_matched[mag_col], bins=bins, range=mag_range)
@@ -41,7 +51,7 @@ def completeness(
         gaia_stars = gaia_matched[gaia_matched["EXT_MASH"] <= 1]
         gaia_hist, _ = np.histogram(gaia_stars[mag_col], bins=bins, range=mag_range)
 
-    return centers, coadd_hist, mover_hist, gaia_hist
+    return centers, coadd_hist, mover_hist, gaia_hist, coadd_stars
 
 
 if __name__ == "__main__":
@@ -65,7 +75,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--out", default="completeness_plot.png")
     args = parser.parse_args()
 
-    centers, coadd_hist, mover_hist, gaia_hist = completeness(
+    centers, coadd_hist, mover_hist, gaia_hist, _ = completeness(
         args.ra0, args.dec0, args.radius, args.pmcatalog_dir, args.coadd_dir,
         gaia_file=args.gaia, nside=args.nside, match_arcsec=args.match_arcsec,
         mag_col=args.mag_col, mag_range=(args.mag_min, args.mag_max), bins=args.bins,

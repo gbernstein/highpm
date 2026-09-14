@@ -205,7 +205,8 @@ def insert_detections(pm_arr, detections_idx, file, mtype):
     n_mem = np.fromiter((len(m) for m in members), int, len(pm_arr))
     n_clip = np.fromiter((len(c) for c in clipped), int, len(pm_arr))
     counts = n_mem + n_clip
-    # Per mover, detections are ordered [members, clipped] (members flagged False).
+    # Per mover, detections are ordered [members, clipped] (members flagged
+    # False, clipped flagged clipped=True).
     detections = np.concatenate(
         [np.hstack((members[i], clipped[i])) for i in range(len(pm_arr))]
     ).astype(np.int64)
@@ -214,7 +215,8 @@ def insert_detections(pm_arr, detections_idx, file, mtype):
     detection_tbl = np.empty(counts.sum(), dtype=detection_column_dtypes)
     detection_tbl["idx"] = np.repeat(np.arange(len(pm_arr)), counts)
     detection_tbl["detections"] = detections_idx[detections]
-    detection_tbl["clipped"] = within >= np.repeat(n_mem, counts)
+    n_mem_rep = np.repeat(n_mem, counts)
+    detection_tbl["clipped"] = within >= n_mem_rep
 
     extnum = None
     if mtype + "_detections" in [file[i].get_extname() for i in range(len(file))]:

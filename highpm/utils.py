@@ -127,18 +127,18 @@ def detections_for_removal(pm_arr, config):
     pmdec = 1000 * p_fits[:, 3]
     pmdec_err = 1000 * cov[:, 3, 3]
 
-    try:
-        removals = np.concatenate(
-            [
-                pm_arr[i][6]
-                for i in range(len(pm_arr))
-                if np.logical_and(
-                    abs(pmra_err[i]) < config["pm_err_lim"],
-                    abs(pmdec_err[i]) < config["pm_err_lim"],
-                )
-                and np.hypot(pmra[i], pmdec[i]) < config["pm_lim"]
-            ]
+    to_concat = [
+        pm_arr[i][6]
+        for i in range(len(pm_arr))
+        if np.logical_and(
+            abs(pmra_err[i]) < config["pm_err_lim"],
+            abs(pmdec_err[i]) < config["pm_err_lim"],
         )
+        and np.hypot(pmra[i], pmdec[i]) < config["pm_lim"]
+    ]
+
+    try:
+        removals = np.concatenate(to_concat)
     except ValueError:  # In case no removals are found
         print("No removals found.")
         removals = np.array([])

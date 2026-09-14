@@ -194,6 +194,38 @@ def get_healpix_center(ipix, nside=32):
     return ra_center, dec_center
 
 
+def load_exposure_radec(path):
+    """(expnum, ra_deg, dec_deg) from a pixmappy exposure metadata table.
+
+    Same convention as scripts/detectionPacking.py's `_radec_from_table`: old
+    y6a1 FITS tables store 'ra'/'dec' columns directly, while pixmappy v2's
+    delveExposures.hdf5 stores the pointing as a 'pole' = [ra, dec] (deg)
+    column. astropy.table.Table.read handles both file formats.
+
+    Parameters
+    ----------
+    path : str
+        Path to the exposure table (FITS or HDF5).
+
+    Returns
+    -------
+    expnum : np.ndarray of int64
+    ra, dec : np.ndarray of float64, in degrees
+    """
+    from astropy.table import Table
+
+    tab = Table.read(path)
+    col = {c.lower(): c for c in tab.colnames}
+    expnum = np.array(tab[col["expnum"]], dtype="i8")
+    if "ra" in col and "dec" in col:
+        ra = np.array(tab[col["ra"]], dtype="f8")
+        dec = np.array(tab[col["dec"]], dtype="f8")
+    else:
+        pole = np.array(tab[col["pole"]], dtype="f8")  # (N, 2) = [ra, dec] deg
+        ra, dec = pole[:, 0], pole[:, 1]
+    return expnum, ra, dec
+
+
 def get_exposures_near_healpix(ipix, ra, dec, expnums, nside=32):
 
     theta = np.radians(90.0 - dec)

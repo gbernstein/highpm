@@ -38,9 +38,9 @@ def new_modest_mover(sample, cat, config, mode="modest"):
 
      Parameters
      ----------
-     sample : list
-         Indices or boolean mask selecting the subset of detections to analyze
-         from the catalog.
+     sample : list or array_like
+         Indices or a boolean mask selecting the subset of detections to
+         analyze from the catalog.
      cat : np.ndarray
          A structured array with the fields "XI", "ETA", and "MJD" representing
          the x and y positions (in degrees) and the Modified Julian Date of each
@@ -66,10 +66,10 @@ def new_modest_mover(sample, cat, config, mode="modest"):
          clustering algorithm and parameters used. Default is "modest".
     Returns
      -------
-     obj_list : list of list of int or None
-         List of clusters, where each cluster is a list of detection indices
-         corresponding to a moving object. Returns None if no valid clusters are
-         found.
+     obj_list : list of list of int, or None
+         List of cluster_indices, each a list of detection indices
+         corresponding to a moving object. Returns None if no valid clusters
+         are found.
      Notes
      -----
      - Uses DBSCAN clustering on a custom distance matrix derived from position

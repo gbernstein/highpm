@@ -2,11 +2,17 @@
 This module provides functions to read and clean catalog data from FITS files.
 """
 
+import os
+
 import fitsio
 import numpy as np
 from astropy.time import Time
 
+from highpm.detection_packaging import load_exposure_radec
+from highpm.friends_of_friends import query_pairs_groups
+from highpm.gnomonic_converter import projectGnomonic
 from highpm.pmfit import error_size
+from highpm.utils import arborist
 
 
 def read_cat_header(filename):
@@ -140,7 +146,7 @@ def completeness_limit(
     return completeness_mask
 
 
-def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
+def clean_cat(catname, config=None, completeness_cat=None, completeness_threshold=0.05):
     """Cleans a catalog by applying quality cuts on specific columns.
 
     Filters the input catalog based on the following criteria:
@@ -148,12 +154,19 @@ def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
     - 'IMAFLAGS_ISO' column values equal to 0.
     - Absolute value of 'SPREAD_MODEL' less than three times 'SPREADERR_MODEL',
         if these columns exist. If not, skips this cut and prints a warning.
+    - If `config['max_exposures_per_month']` is set, caps exposures per
+        colocated-pointing cluster per calendar month (see
+        `thin_exposures_by_pointing`).
     Parameters
     ----------
     catname : numpy.ndarray
             Input catalog containing at least the columns 'FLAGS' and
             'IMAFLAGS_ISO'. For additional filtering, should also contain
             'SPREAD_MODEL' and 'SPREADERR_MODEL'.
+    config : dict, optional
+            Pipeline config. If it sets 'max_exposures_per_month', also
+            requires 'ra0'/'dec0' and either 'exposures_file' or the
+            $DES_EXPOSURES env var (a pixmappy exposures table).
     Returns
     -------
     cleancat : same type as `catname`
@@ -197,22 +210,55 @@ def clean_cat(catname, completeness_cat=None, completeness_threshold=0.05):
 
     except KeyError:
         print("No Spread Model cleaning...")
+
+    max_exp_per_month = None if config is None else config.get("max_exposures_per_month")
+    if max_exp_per_month is not None:
+        exposures_file = config.get("exposures_file") or os.environ["DES_EXPOSURES"]
+        expnum, ra, dec = load_exposure_radec(exposures_file)
+        zeros = np.zeros_like(ra)
+        xi, eta, *_ = projectGnomonic(ra, dec, zeros, zeros, config["ra0"], config["dec0"])
+        expnum = expnum.tolist()
+        pointing_xi = dict(zip(expnum, xi.tolist()))
+        pointing_eta = dict(zip(expnum, eta.tolist()))
+        cleanmask &= thin_exposures_by_pointing(
+            catname,
+            max_exp_per_month,
+            pointing_xi,
+            pointing_eta,
+            config.get("pointing_linklength_arcmin", 5.0),
+        )
+
     return cleanmask
 
 
-def thin_exposures_by_month(cat, max_exposures_per_month, err_band_arcsec=(0.005, 0.05)):
-    """Cap exposures per calendar month, keeping the astrometrically best ones.
+def thin_exposures_by_pointing(
+    cat,
+    max_exposures_per_month,
+    pointing_xi,
+    pointing_eta,
+    linklength_arcmin=5.0,
+    err_band_arcsec=(0.005, 0.05),
+):
+    """Cap exposures per colocated-pointing cluster per calendar month,
+    keeping the astrometrically best ones.
 
-    For any calendar month with more than `max_exposures_per_month` exposures,
-    keep only the `max_exposures_per_month` exposures with the lowest median
-    error_size() among their own detections that fall within `err_band_arcsec`
-    (this pipeline's typical-precision band, not implausibly tight or noisy
-    outliers), dropping every detection belonging to the excluded exposures.
-    Months at or under the cap are left untouched.
+    Dithered campaigns (many exposures re-pointed by a few arcsec/arcmin
+    within a few nights) add little proper-motion baseline but combinatorially
+    inflate friends-of-friends group sizes. Exposures are first split by
+    calendar month; within each month, exposures are clustered by pointing via
+    friends-of-friends on each exposure's true pointing center
+    (`pointing_xi`/`pointing_eta`, from the pixmappy DELVE exposures table,
+    not the exposure's own detections) with `linklength_arcmin`. Any resulting
+    month-cluster with more than `max_exposures_per_month` exposures is
+    thinned down to that many, keeping the exposures with the lowest median
+    error_size() among their own detections that fall within
+    `err_band_arcsec` (this pipeline's typical-precision band, not
+    implausibly tight or noisy outliers). Month-clusters at or under the cap
+    are left untouched.
 
     An exposure with no detections inside err_band_arcsec can't be ranked by
     this criterion and is treated as worst (its rank key is +inf), so it is
-    dropped first if its month ends up over the cap.
+    dropped first if its month-cluster ends up over the cap.
 
     Parameters
     ----------
@@ -220,7 +266,16 @@ def thin_exposures_by_month(cat, max_exposures_per_month, err_band_arcsec=(0.005
         Catalog with 'EXPNUM', 'MJD', 'BEST_RA_ERR', 'BEST_DEC_ERR',
         'BEST_RA_DEC_CORR'.
     max_exposures_per_month : int
-        Maximum exposures to keep per calendar month.
+        Maximum exposures to keep per pointing cluster per calendar month.
+    pointing_xi, pointing_eta : dict[int, float]
+        Exposure pointing center, in the same gnomonic (XI, ETA) frame as
+        `cat`, keyed by EXPNUM. Must cover every EXPNUM in `cat`. See
+        `highpm.detection_packaging.load_exposure_radec` +
+        `highpm.gnomonic_converter.projectGnomonic` to build these from a
+        pixmappy exposures table.
+    linklength_arcmin : float, optional
+        Friends-of-friends linking length, in arcmin, used to cluster
+        exposure pointings. Default 5.0.
     err_band_arcsec : tuple of (float, float), optional
         (low, high) error_size band in arcsec used for the ranking median.
         Default (0.005, 0.05) = 5-50 mas.
@@ -236,8 +291,15 @@ def thin_exposures_by_month(cat, max_exposures_per_month, err_band_arcsec=(0.005
     unique_expnum, first_idx = np.unique(expnum, return_index=True)
     unique_mjd = cat["MJD"][first_idx]
 
+    xi_centroid = np.array([pointing_xi[exp] for exp in unique_expnum])
+    eta_centroid = np.array([pointing_eta[exp] for exp in unique_expnum])
+
     dt = Time(unique_mjd, format="mjd").datetime
     year_month = [(d.year, d.month) for d in dt]
+
+    months = {}
+    for i, key in enumerate(year_month):
+        months.setdefault(key, []).append(i)
 
     lo, hi = err_band_arcsec
     rank_key = np.full(len(unique_expnum), np.inf, dtype=np.float64)
@@ -247,20 +309,76 @@ def thin_exposures_by_month(cat, max_exposures_per_month, err_band_arcsec=(0.005
         if len(band_sigma) > 0:
             rank_key[i] = np.median(band_sigma)
 
-    groups = {}
-    for i, key in enumerate(year_month):
-        groups.setdefault(key, []).append(i)
-
     kept_expnums = []
-    for key, idxs in groups.items():
-        idxs = np.array(idxs)
-        if len(idxs) <= max_exposures_per_month:
-            kept_expnums.append(unique_expnum[idxs])
-        else:
-            order = np.argsort(rank_key[idxs], kind="stable")
-            keep_idxs = idxs[order[:max_exposures_per_month]]
-            kept_expnums.append(unique_expnum[keep_idxs])
+    for month_idxs in months.values():
+        month_idxs = np.asarray(month_idxs)
+        pointing_tree = arborist(xi_centroid[month_idxs], eta_centroid[month_idxs])
+        pointing_groups = query_pairs_groups(pointing_tree, linklength_arcmin / 60.0)
+        for local_idxs in pointing_groups:
+            idxs = month_idxs[local_idxs]
+            if len(idxs) <= max_exposures_per_month:
+                kept_expnums.append(unique_expnum[idxs])
+            else:
+                order = np.argsort(rank_key[idxs], kind="stable")
+                keep_idxs = idxs[order[:max_exposures_per_month]]
+                kept_expnums.append(unique_expnum[keep_idxs])
 
     kept_expnums = np.concatenate(kept_expnums)
 
     return np.isin(expnum, kept_expnums)
+
+
+if __name__ == "__main__":
+    # Two pointing clusters (far apart), 8 exposures each within one month.
+    # Cap=5 per cluster-month should keep exactly 5 from each, favoring the
+    # exposures with the smallest error_size.
+    n_exp_per_cluster = 8
+    rows = []
+    pointing_xi, pointing_eta = {}, {}
+    for cluster_center in [(0.0, 0.0), (10.0, 10.0)]:
+        for exp in range(n_exp_per_cluster):
+            expnum = cluster_center[0] * 1000 + exp  # unique per cluster
+            ra_err = 0.01 + 0.001 * exp  # increasing (worst last)
+            pointing_xi[expnum] = cluster_center[0]
+            pointing_eta[expnum] = cluster_center[1]
+            for _ in range(3):  # detections per exposure
+                rows.append((expnum, 59001.0 + exp, ra_err, ra_err, 0.0))  # same month (2020-06)
+
+    dtype = [
+        ("EXPNUM", "f8"),
+        ("MJD", "f8"),
+        ("BEST_RA_ERR", "f8"),
+        ("BEST_DEC_ERR", "f8"),
+        ("BEST_RA_DEC_CORR", "f8"),
+    ]
+    cat = np.array(rows, dtype=dtype)
+
+    keepmask = thin_exposures_by_pointing(
+        cat, 5, pointing_xi, pointing_eta, linklength_arcmin=5.0
+    )
+    kept_expnums = np.unique(cat["EXPNUM"][keepmask])
+    assert len(kept_expnums) == 10, kept_expnums  # 5 kept per cluster x 2 clusters
+    for cluster_center in [(0.0, 0.0), (10.0, 10.0)]:
+        cluster_kept = kept_expnums[
+            (kept_expnums >= cluster_center[0] * 1000)
+            & (kept_expnums < cluster_center[0] * 1000 + n_exp_per_cluster)
+        ]
+        assert sorted(cluster_kept) == [
+            cluster_center[0] * 1000 + i for i in range(5)
+        ], cluster_kept  # lowest-error (lowest exp index) 5 survive
+
+    # A colocated cluster split across two calendar months should not be
+    # thinned if neither month alone exceeds the cap.
+    rows = []
+    pointing_xi2, pointing_eta2 = {}, {}
+    for exp, mjd in enumerate([59000.0, 59001.0, 59002.0, 59032.0, 59033.0]):
+        pointing_xi2[exp], pointing_eta2[exp] = 0.0, 0.0
+        for _ in range(3):
+            rows.append((exp, mjd, 0.01, 0.01, 0.0))
+    cat2 = np.array(rows, dtype=dtype)
+    keepmask2 = thin_exposures_by_pointing(
+        cat2, 3, pointing_xi2, pointing_eta2, linklength_arcmin=5.0
+    )
+    assert np.all(keepmask2)  # 3 in Jan, 2 in Feb 2020 (mjd 59032-33) -- both under cap
+
+    print("thin_exposures_by_pointing self-check OK")

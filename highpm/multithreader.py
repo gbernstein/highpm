@@ -65,17 +65,31 @@ def multithreader(func, lol, cat, config, fitting=False):
     # across every worker (one chunk per core).
     chunksize = max(1, min(config["chunksize"], -(-len(lol) // cores)))
 
-    with Pool(
+    # ponytail: `with Pool(...) as pool` calls pool.terminate() on exit, not
+    # close()+join() -- terminate() kills worker processes and the internal
+    # task/result-handler threads immediately rather than letting them drain
+    # and exit cleanly. multithreader() is called many times per run (each
+    # modest round dispatches 2-3 fresh Pools), and across ~9-10 Pool
+    # generations in one long-lived process, terminate()'s abrupt teardown of
+    # those handler threads compounds into a multi-GB leak in the main
+    # process (traced via memray to a `recv()`-heavy background thread) even
+    # though every individual Pool's own workload is small. close()+join()
+    # lets each Pool fully release its resources before the next one starts.
+    pool = Pool(
         processes=cores,
         initializer=_init_worker,
         initargs=(func, cat, config, fitting),
-    ) as pool:
+    )
+    try:
         ls_out = list(
             tqdm.tqdm(
                 pool.imap_unordered(_apply, lol, chunksize=chunksize),
                 total=len(lol),
             )
         )
+    finally:
+        pool.close()
+        pool.join()
     return ls_out
 
 
