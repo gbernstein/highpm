@@ -7,7 +7,7 @@
 #SBATCH --error=/data8/shared/decampm/PMSculptor/logs/poscorr/err_%a.err
 #SBATCH -p low
 #SBATCH -q low
-#SBATCH --array=0-N          # N = ceil(len(pmsculptor_exposures.npy) / 2) - 1
+#SBATCH --array=0-N          # N set by run_pmsculptor_pipeline.sh (batched to <=1200 tasks)
 #SBATCH --exclude=node[01-12]
 #SBATCH --requeue
 
@@ -22,6 +22,6 @@ python /home2/vwetzell/gitrepos/highpm/scripts/positionCorrection.py \
     --processes 1 \
     --exposures-npy /data8/shared/decampm/PMSculptor/pmsculptor_exposures.npy \
     --index ${SLURM_ARRAY_TASK_ID} \
-    --chunk-size 2
+    --chunk-size "${POSCORR_CHUNK:?POSCORR_CHUNK must be exported by the submitting script}"
 
 finish
