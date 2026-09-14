@@ -14,6 +14,7 @@ from highpm.gnomonic_converter import projectGnomonic
 MIN_ID_MATCH_FRACTION = 0.5  # below this (or on a join_by error), fall back to RA/Dec matching
 POSITION_MATCH_TOLERANCE = 1.0  # arcsec, for the RA/Dec fallback match
 COLOR_DERIVATIVE_STEP = 0.01  # mag, full width of the symmetric finite-difference step
+TRAP_SHIFT_FLAG_MAS = 5.0  # flag detections whose pixmappy charge trap shift exceeds this (mas)
 
 
 def loadSkim(filename):
@@ -267,6 +268,8 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
             ("BEST_DEC", "f8"),
             ("DRA_DCOLOR", "f8"),
             ("DDEC_DCOLOR", "f8"),
+            ("TRAP_SHIFT_MAS", "f8"),
+            ("TRAP_FLAG", "?"),
         ],
     )
 
@@ -305,6 +308,7 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
         ywin = np.empty(n, dtype="f8")
         dRAdColor = np.empty(n, dtype="f8")
         dDECdColor = np.empty(n, dtype="f8")
+        trapShiftMas = np.empty(n, dtype="f8")
 
         # One WCS per CCD: transform each CCD's whole row group at once instead
         # of calling toPix/toSky per detection.
@@ -313,6 +317,17 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
             ccdnum = int(matchedSkimGPRData["CCDNUM"][iUse[0]])
 
             wcs = maps.getDelveWCS(expnum, ccdnum)
+
+            # Trap.mas() is evaluated at the original (pre-correction) pixel
+            # position, since the trap shift is a lookup keyed on where the
+            # detection actually landed on the CCD, not its corrected sky
+            # position. -100 mas is pixmappy's sentinel for CCD57's parallel
+            # trap zone, where the shift isn't estimated at all.
+            trapMap = maps.getMap(maps.trapMapFor(expnum, ccdnum))
+            trapShiftMas[iUse] = trapMap.mas(
+                matchedSkimGPRData["XWIN_IMAGE"][iUse],
+                matchedSkimGPRData["YWIN_IMAGE"][iUse],
+            )
 
             x, y = wcs.toPix(new_ra[iUse], new_dec[iUse], c=centerColor[iUse])
 
@@ -342,6 +357,10 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
         # back to the default color get a real (nonzero) derivative.
         tempData["DRA_DCOLOR"] = np.where(hasKnownColor, 0.0, dRAdColor)
         tempData["DDEC_DCOLOR"] = np.where(hasKnownColor, 0.0, dDECdColor)
+        tempData["TRAP_SHIFT_MAS"] = trapShiftMas
+        # -100 is CCD57's parallel-trap sentinel (unreliable, not "small"), so
+        # it must flag too, not just large positive shifts.
+        tempData["TRAP_FLAG"] = (trapShiftMas < 0) | (trapShiftMas > TRAP_SHIFT_FLAG_MAS)
 
     updatedSkimGPRData = rfn.merge_arrays(
         [matchedSkimGPRData, tempData],
