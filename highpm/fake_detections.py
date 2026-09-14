@@ -9,7 +9,9 @@ import sys
 import numpy as np
 import healpy as hp
 import fitsio
+import pixmappy as pm
 from matplotlib.path import Path
+from scipy.spatial import KDTree
 
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,12 +29,18 @@ from astropy.time import Time
 
 from highpm.gnomonic_converter import gnomonic_plate2sky, projectGnomonic
 from highpm.detection_packaging import get_healpix_center
+from highpm.position_correction import TRAP_SHIFT_FLAG_MAS
 
 rng = np.random.default_rng(42)
 
 # Stand-in for the GPR/turbulence positional error (highpm.position_correction's
 # BEST_RA_ERR/BEST_DEC_ERR): a normal distribution with a few mas of scatter.
 GPR_ERROR_ARCSEC = 0.004
+
+# A fake landing this close to a real detection in the same exposure would be
+# blended with it, not a clean injected recovery -- drop it (see the injection
+# run's blending cut in generate_fake_detections).
+BLEND_TOLERANCE_ARCSEC = 1.0
 
 
 def F_ra(ra_star, R_earth, ra_sun, dec_ecliptic):
@@ -149,6 +157,9 @@ def detection_completeness(mags, expnum, band):
 
 
 def fov_mask(ra, dec, expnum):
+    """Returns (fov_masks, ccdnum) -- ccdnum is which CCD each in-FOV point
+    landed on (-1 where fov_masks is False), needed downstream for the
+    per-CCD charge-trap lookup."""
 
     full_corners_cat = fitsio.read(
         "~/gitrepos/highpm/data/delve.ccdcorners.fits",
@@ -179,6 +190,7 @@ def fov_mask(ra, dec, expnum):
             )
 
     fov_masks = np.zeros_like(ra, dtype=bool)
+    ccdnum = np.full(ra.shape, -1, dtype=int)
     for i, exp in enumerate(expnum):
 
         corners_exp = corners_cat[corners_cat["expnum"] == exp]
@@ -209,8 +221,9 @@ def fov_mask(ra, dec, expnum):
             # print(np.sum(inside), "points inside exp", exp, "ccd", ccd)
 
             fov_masks[:, i] = fov_masks[:, i] | inside
+            ccdnum[inside, i] = ccd
 
-    return fov_masks
+    return fov_masks, ccdnum
 
 
 def generate_fake_detections(
@@ -229,6 +242,15 @@ def generate_fake_detections(
         real_detection_catalog,
         ext=1,
         columns=["EXPNUM", "MJD", "BAND"],
+    )
+
+    # Real positions (not deduped like unique_observations below) for the
+    # per-exposure blending cut further down: every individual real detection,
+    # in the same XI/ETA gnomonic frame detectionPacking.py wrote them in.
+    real_positions = fitsio.read(
+        real_detection_catalog,
+        ext=1,
+        columns=["EXPNUM", "XI", "ETA"],
     )
 
     real_header = fitsio.read_header(
@@ -355,17 +377,55 @@ def generate_fake_detections(
         band=unique_observations["BAND"],
     )
 
-    fov_masks = fov_mask(
+    fov_masks, ccdnum_arr = fov_mask(
         ra=ra_detections,
         dec=dec_detections,
         expnum=unique_observations["EXPNUM"],
     )
 
-    mask = completeness_mask & fov_masks
+    # A fake landing in a charge-trap zone wouldn't have been a clean real
+    # detection either (clean_cat drops those via TRAP_FLAG), so it must be
+    # dropped here too -- not just flagged -- or injection-recovery completeness
+    # would overstate what the real pipeline actually recovers there.
+    trap_color = fake_stars["g_mag"] - fake_stars["i_mag"]
+    trap_removed = np.zeros_like(fov_masks)
+    maps = pm.DelveMaps()
+    for i, exp in enumerate(unique_observations["EXPNUM"]):
+        for ccd in np.unique(ccdnum_arr[fov_masks[:, i], i]):
+            sel = fov_masks[:, i] & (ccdnum_arr[:, i] == ccd)
+            wcs = maps.getDelveWCS(int(exp), int(ccd))
+            x, y = wcs.toPix(ra_detections[sel, i], dec_detections[sel, i], c=trap_color[sel])
+            trap_map = maps.getMap(maps.trapMapFor(int(exp), int(ccd)))
+            shift_mas = trap_map.mas(x, y)
+            trap_removed[sel, i] = (shift_mas < 0) | (shift_mas > TRAP_SHIFT_FLAG_MAS)
+
+    # A fake within BLEND_TOLERANCE_ARCSEC of a real detection in the same
+    # exposure would be blended with it in practice, not a clean injection
+    # recovery -- drop it too, or injection-recovery completeness overstates
+    # what's actually recoverable near real sources. Same XI/ETA gnomonic
+    # frame (this healpixel's ra0/dec0) as detectionPacking.py wrote into
+    # real_detection_catalog, so a flat tolerance in that frame is fine at
+    # arcsec scale.
+    blend_tol = BLEND_TOLERANCE_ARCSEC / 3600.0
+    blend_removed = np.zeros_like(fov_masks)
+    candidate = fov_masks & ~trap_removed
+    for i, exp in enumerate(unique_observations["EXPNUM"]):
+        real_sel = real_positions["EXPNUM"] == exp
+        fake_sel = candidate[:, i]
+        if not np.any(real_sel) or not np.any(fake_sel):
+            continue
+        tree = KDTree(np.column_stack([real_positions["XI"][real_sel], real_positions["ETA"][real_sel]]))
+        dist, _ = tree.query(np.column_stack([xi_noisy[fake_sel, i], eta_noisy[fake_sel, i]]))
+        fake_idx = np.where(fake_sel)[0]
+        blend_removed[fake_idx[dist < blend_tol], i] = True
+
+    mask = completeness_mask & fov_masks & ~trap_removed & ~blend_removed
 
     print("Total fake detections:", len(ra_detections))
     print("Detections after completeness:", np.sum(completeness_mask))
     print("Detections inside FOV:", np.sum(fov_masks))
+    print("Detections dropped for charge traps:", np.sum(fov_masks & trap_removed))
+    print("Detections dropped for blending with a real source (<1\"):", np.sum(candidate & blend_removed))
     print("Final detections:", np.sum(mask))
     per_star = mask.sum(axis=1)
     print(
@@ -425,6 +485,7 @@ def generate_fake_detections(
             ("ETA", ">f8"),
             ("DXI_DCOLOR", ">f8"),
             ("DETA_DCOLOR", ">f8"),
+            ("TRAP_FLAG", "?"),  # fakes have no real charge-trap shift; always False
         ]
     )
 

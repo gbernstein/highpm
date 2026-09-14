@@ -154,6 +154,8 @@ def clean_cat(catname, config=None, completeness_cat=None, completeness_threshol
     - 'IMAFLAGS_ISO' column values equal to 0.
     - Absolute value of 'SPREAD_MODEL' less than three times 'SPREADERR_MODEL',
         if these columns exist. If not, skips this cut and prints a warning.
+    - 'TRAP_FLAG' column is False, if the column exists. If not, skips this
+        cut and prints a warning.
     - If `config['max_exposures_per_month']` is set, caps exposures per
         colocated-pointing cluster per calendar month (see
         `thin_exposures_by_pointing`).
@@ -208,8 +210,16 @@ def clean_cat(catname, config=None, completeness_cat=None, completeness_threshol
         #     completeness_threshold,
         # )
 
-    except KeyError:
+    except (KeyError, ValueError):
+        # KeyError: astropy Table/dict-like. ValueError: plain numpy structured
+        # array (what fitsio.read actually returns) raises this instead on a
+        # missing field.
         print("No Spread Model cleaning...")
+
+    try:
+        cleanmask &= ~catname["TRAP_FLAG"]
+    except (KeyError, ValueError):
+        print("No Trap Flag cleaning...")
 
     max_exp_per_month = None if config is None else config.get("max_exposures_per_month")
     if max_exp_per_month is not None:

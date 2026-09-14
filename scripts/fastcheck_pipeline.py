@@ -1,6 +1,6 @@
 """
-Wrapper: run the fast checker on the real / fake / overlay PM outputs that
-fake_pipeline.py produced for a healpixel. Any run can be toggled via --runs.
+Wrapper: run the fast checker on the real / injection PM outputs that
+fake_pipeline.py produced for a healpixel. Either run can be toggled via --runs.
 
 The fast checker's `fastcat` is a PM mover file, so this consumes the *_PM_hp*.fits
 (and fake_detections) that fake_pipeline wrote -- it does not re-run PM. Run
@@ -37,7 +37,7 @@ def main():
         "--output-name", default="", help="Base path/prefix used by fake_pipeline."
     )
     parser.add_argument(
-        "--runs", default="real,fake,overlay", help="Comma list: real,fake,overlay."
+        "--runs", default="real,injection", help="Comma list: real,injection."
     )
     parser.add_argument(
         "--search-radius-arcsec", type=float, default=None, help="Fast-check search radius."
@@ -46,7 +46,7 @@ def main():
     args = parser.parse_args()
 
     if args.self_test:
-        assert parse_runs("real,overlay") == ["real", "overlay"]
+        assert parse_runs("real,injection") == ["real", "injection"]
         print("self-test OK")
         return 0
 
@@ -68,8 +68,7 @@ def main():
     # match how fake_pipeline built each PM run.
     plan = {
         "real": (catalog, f"{base}real_PM_hp{healpix:05d}.fits", None),
-        "fake": (fake_det, f"{base}fake_PM_hp{healpix:05d}.fits", None),
-        "overlay": (catalog, f"{base}overlay_PM_hp{healpix:05d}.fits", fake_det),
+        "injection": (catalog, f"{base}injection_PM_hp{healpix:05d}.fits", fake_det),
     }
 
     for run in runs:

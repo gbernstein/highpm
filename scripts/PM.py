@@ -37,14 +37,22 @@ PM_COLUMNS = [
     "BEST_RA_ERR", "BEST_DEC_ERR", "BEST_RA_DEC_CORR", "BAND",
     "COLOR", "COLOR_SOURCE",
     "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
-    "FLAGS", "IMAFLAGS_ISO",
+    "FLAGS", "IMAFLAGS_ISO", "TRAP_FLAG",
 ]
 
 
 def _read_pm_cat(path):
     # Force column order (fitsio returns file order) and pack so the detections
     # and injection arrays share an identical dtype for np.concatenate.
-    arr = fitsio.read(path, columns=PM_COLUMNS, ext=1)
+    # TRAP_FLAG is absent from pre-reprocessing catalogs and from fake-star
+    # injections (which can't have a real charge-trap shift), so it's read
+    # only when present and defaulted to False (not flagged) otherwise.
+    available = fitsio.FITS(path)[1].get_colnames()
+    has_trap = "TRAP_FLAG" in available
+    columns = PM_COLUMNS if has_trap else [c for c in PM_COLUMNS if c != "TRAP_FLAG"]
+    arr = fitsio.read(path, columns=columns, ext=1)
+    if not has_trap:
+        arr = rfn.append_fields(arr, "TRAP_FLAG", np.zeros(len(arr), dtype="?"), usemask=False)
     return rfn.repack_fields(arr[PM_COLUMNS])
 
 
