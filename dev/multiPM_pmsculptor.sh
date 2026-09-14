@@ -14,11 +14,12 @@
 AUXDIR=/data8/shared/decampm/PMSculptor/logs/pm
 source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 
-python /home2/vwetzell/gitrepos/highpm/scripts/PM.py \
+python /home2/vwetzell/gitrepos/highpm/scripts/fake_pipeline.py \
     --config /home2/vwetzell/gitrepos/highpm/config/config.yaml \
     --detections "/data8/shared/decampm/PMSculptor/HealpixDetectionCatalog/cleaned_detections_*.fits" \
     --index ${SLURM_ARRAY_TASK_ID} \
     --healpix-npy /data8/shared/decampm/PMSculptor/pmsculptor_healpix.npy \
-    --output-name /data8/shared/decampm/PMSculptor/PMCatalog/
+    --output-name /data8/shared/decampm/PMSculptor/PMCatalog/ \
+    --runs real,injection
 
 finish
