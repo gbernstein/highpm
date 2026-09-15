@@ -19,6 +19,8 @@ DES_EXPOSURES="$REPO/../pixmappy/pixmappy/data/delveExposures.hdf5"
 
 MAX_OOM_RETRIES=3
 MAX_ARRAY_TASKS=1200  # QOSMaxSubmitJobPerUserLimit on this cluster
+NSIDE=32              # must match dev/healpixFromExposures.py's default (builds $HEALPIX_NPY)
+DISC_RADIUS_DEG=1.1   # ditto -- ~DES focal plane radius
 
 source /home2/vwetzell/.bashrc
 conda activate pm
@@ -128,6 +130,53 @@ print(','.join(map(str, pending)))
 " "$@"
 }
 
+# Prints comma-separated raw healpix ids (at $NSIDE) whose disc overlaps any
+# exposure in the given exposures .npy file, using the same query as
+# dev/healpixFromExposures.py -- so we can tell exactly which healpix a batch
+# of newly position-corrected exposures could affect, instead of assuming
+# "any new exposure -> reprocess everything".
+touched_healpix_for_exposures() {
+    python -c "
+import numpy as np
+import healpy as hp
+from astropy.table import Table
+exposures = set(int(e) for e in np.load('$1'))
+tab = Table.read('$DES_EXPOSURES')
+expnum = np.asarray(tab['expnum'])
+pole = np.asarray(tab['pole'])  # (N, 2) = [ra, dec] in degrees
+mask = np.isin(expnum, list(exposures))
+discs = [
+    hp.query_disc($NSIDE, hp.ang2vec(np.radians(90.0 - dec), np.radians(ra)),
+                  np.radians($DISC_RADIUS_DEG), inclusive=True)
+    for ra, dec in pole[mask]
+]
+touched = np.unique(np.concatenate(discs)) if discs else np.array([], dtype=int)
+print(','.join(map(str, touched)))
+"
+}
+
+# Maps raw healpix ids (as printed by touched_healpix_for_exposures) to their
+# array indices in $HEALPIX_NPY.
+healpix_ids_to_indices() {
+    python -c "
+import sys
+import numpy as np
+healpix = np.load('$HEALPIX_NPY')
+ids = set(int(x) for x in sys.argv[1].split(',') if x)
+print(','.join(str(i) for i, hp in enumerate(healpix) if int(hp) in ids))
+" "$1"
+}
+
+# Prints the sorted union of two comma-separated int lists (either may be empty).
+union_csv() {
+    python -c "
+import sys
+a = set(int(x) for x in sys.argv[1].split(',') if x)
+b = set(int(x) for x in sys.argv[2].split(',') if x)
+print(','.join(map(str, sorted(a | b))))
+" "$1" "$2"
+}
+
 echo "== Stage 0: build exposure list =="
 python "$REPO/dev/build_pmsculptor_exposures.py" \
     --skims-path "$SKIMS_PATH" \
@@ -139,9 +188,9 @@ n_exposures=$(python -c "import numpy as np; print(len(np.load('$EXPOSURES_NPY')
 echo "== Stage 1: position correction =="
 POSCORR_EXPOSURES_NPY="$BASE/pmsculptor_exposures_pending.npy"
 n_pending=$(write_pending_exposures)
+touched_healpix_ids=""
 if [ "$n_pending" -eq 0 ]; then
     echo "  all $n_exposures exposures already position-corrected, skipping"
-    force_repack=0
 else
     # Chunk size must be big enough that ceil(n_pending/chunk) fits in one
     # stage's worth of array batches (MAX_ARRAY_TASKS each); multiPositionCorrection
@@ -151,10 +200,10 @@ else
     n_pc=$(( (n_pending + POSCORR_CHUNK - 1) / POSCORR_CHUNK ))
     echo "$n_pending / $n_exposures exposures pending -> $n_pc position-correction array tasks (chunk=$POSCORR_CHUNK)"
     submit_stage "$REPO/dev/multiPositionCorrection_pmsculptor.sh" "$(seq -s, 0 $(( n_pc - 1 )))" 4
-    # Already-packed healpix may have had incomplete input last time --
-    # reprocess all of them rather than trusting per-file "already done"
-    # checks for stages 3-4.
-    force_repack=1
+    # A healpix already packed from a prior run may have had incomplete input
+    # if any of these newly-corrected exposures overlap it -- reprocess just
+    # those healpix, not every healpix in the footprint.
+    touched_healpix_ids="$(touched_healpix_for_exposures "$POSCORR_EXPOSURES_NPY")"
 fi
 
 echo "== Stage 2: build healpix list from position-corrected exposures =="
@@ -167,26 +216,23 @@ n_healpix=$(python -c "import numpy as np; print(len(np.load('$HEALPIX_NPY')))")
 echo "$n_healpix healpixels -> packing/PM array tasks"
 
 echo "== Stage 3: detection packing =="
-if [ "$force_repack" -eq 1 ]; then
-    echo "  new position-correction output this run; reprocessing all $n_healpix healpix"
-    packing_pending="$(seq -s, 0 $(( n_healpix - 1 )))"
-else
-    # ponytail: a healpix with zero cleaned detections after cuts never
-    # produces this file and so is "pending" forever; harmless, it just
-    # reruns (and no-ops) on every resume.
-    packing_pending="$(pending_healpix_tasks "$BASE/HealpixDetectionCatalog/cleaned_detections_hp{hp:05d}.fits")"
+# ponytail: a healpix with zero cleaned detections after cuts never produces
+# this file and so is "pending" forever; harmless, it just reruns (and
+# no-ops) on every resume.
+packing_pending="$(pending_healpix_tasks "$BASE/HealpixDetectionCatalog/cleaned_detections_hp{hp:05d}.fits")"
+if [ -n "$touched_healpix_ids" ]; then
+    touched_idx="$(healpix_ids_to_indices "$touched_healpix_ids")"
+    echo "  reprocessing healpix touched by newly position-corrected exposures too"
+    packing_pending="$(union_csv "$packing_pending" "$touched_idx")"
 fi
 submit_stage "$REPO/dev/multiPacking_pmsculptor.sh" "$packing_pending" 32
 
 echo "== Stage 4: proper motion fit =="
-if [ "$force_repack" -eq 1 ] || [ -n "$packing_pending" ]; then
-    echo "  packing changed this run; reprocessing all $n_healpix healpix"
-    pm_pending="$(seq -s, 0 $(( n_healpix - 1 )))"
-else
-    pm_pending="$(pending_healpix_tasks \
-        "$BASE/PMCatalog/real_PM_hp{hp:05d}.fits" \
-        "$BASE/PMCatalog/injection_PM_hp{hp:05d}.fits")"
-fi
+pm_pending="$(pending_healpix_tasks \
+    "$BASE/PMCatalog/real_PM_hp{hp:05d}.fits" \
+    "$BASE/PMCatalog/injection_PM_hp{hp:05d}.fits")"
+# Any healpix (re)packed just now has fresh input for the PM fit too.
+pm_pending="$(union_csv "$pm_pending" "$packing_pending")"
 submit_stage "$REPO/dev/multiPM_pmsculptor.sh" "$pm_pending" 32
 
 echo "Done. Outputs under $BASE"
