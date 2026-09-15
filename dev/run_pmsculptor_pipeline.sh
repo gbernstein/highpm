@@ -25,16 +25,30 @@ conda activate pm
 
 mkdir -p "$BASE" "$BASE/logs/poscorr" "$BASE/logs/packing" "$BASE/logs/pm" "$POSCORR_OUT"
 
+# Compresses a sorted comma-separated int list into SLURM array range syntax
+# (e.g. "0,1,2,3" -> "0-3"), since sbatch rejects a submission whose --array
+# string is too long and task lists here are usually contiguous.
+compress_array_spec() {
+    awk -v RS=',' '
+    { n=$1+0; if (first=="") { start=prev=n; first=1; next }
+      if (n==prev+1) { prev=n; next }
+      printf "%s%s", (out?",":""), (start==prev?start:start"-"prev); out=1
+      start=prev=n }
+    END { if (first!="") printf "%s%s", (out?",":""), (start==prev?start:start"-"prev); print "" }
+    ' <<<"$1"
+}
+
 # Submits one array job (<=MAX_ARRAY_TASKS tasks) and waits on it (--requeue
 # in the .sh handles SLURM preemption on its own). If any task OOM'd,
 # resubmit just those tasks at double the memory, up to MAX_OOM_RETRIES times.
 submit_batch() {
     local script="$1" array_spec="$2" mem_gb="$3"
-    local attempt=0 jobid oom_tasks bad_tasks
+    local attempt=0 jobid oom_tasks bad_tasks spec
     while true; do
-        echo "Submitting $(basename "$script") (array=$array_spec, mem=${mem_gb}gb)"
+        spec=$(compress_array_spec "$array_spec")
+        echo "Submitting $(basename "$script") (array=$spec, mem=${mem_gb}gb)"
         set +e
-        jobid=$(sbatch --parsable --wait --array="$array_spec" --mem="${mem_gb}gb" \
+        jobid=$(sbatch --parsable --wait --array="$spec" --mem="${mem_gb}gb" \
             --export="ALL,POSCORR_CHUNK=${POSCORR_CHUNK:-},POSCORR_EXPOSURES_NPY=${POSCORR_EXPOSURES_NPY:-}" "$script")
         set -e
         # Only look at the array-task rows (12345_3), not their .batch/.extern steps.
