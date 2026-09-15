@@ -130,7 +130,16 @@ n_pc=$(( (n_exposures + POSCORR_CHUNK - 1) / POSCORR_CHUNK ))
 echo "$n_exposures exposures -> $n_pc position-correction array tasks (chunk=$POSCORR_CHUNK)"
 
 echo "== Stage 1: position correction =="
-submit_stage "$REPO/dev/multiPositionCorrection_pmsculptor.sh" "$(pending_poscorr_tasks)" 4
+poscorr_pending="$(pending_poscorr_tasks)"
+submit_stage "$REPO/dev/multiPositionCorrection_pmsculptor.sh" "$poscorr_pending" 4
+# If any exposure was newly position-corrected this run, already-packed
+# healpix may have had incomplete input last time -- reprocess all of them
+# rather than trusting per-file "already done" checks for stages 3-4.
+if [ -n "$poscorr_pending" ]; then
+    force_repack=1
+else
+    force_repack=0
+fi
 
 echo "== Stage 2: build healpix list from position-corrected exposures =="
 python "$REPO/dev/healpixFromExposures.py" \
@@ -142,16 +151,26 @@ n_healpix=$(python -c "import numpy as np; print(len(np.load('$HEALPIX_NPY')))")
 echo "$n_healpix healpixels -> packing/PM array tasks"
 
 echo "== Stage 3: detection packing =="
-# ponytail: a healpix with zero cleaned detections after cuts never produces
-# this file and so is "pending" forever; harmless, it just reruns (and
-# no-ops) on every resume.
-submit_stage "$REPO/dev/multiPacking_pmsculptor.sh" \
-    "$(pending_healpix_tasks "$BASE/HealpixDetectionCatalog/cleaned_detections_hp{hp:05d}.fits")" 32
+if [ "$force_repack" -eq 1 ]; then
+    echo "  new position-correction output this run; reprocessing all $n_healpix healpix"
+    packing_pending="$(seq -s, 0 $(( n_healpix - 1 )))"
+else
+    # ponytail: a healpix with zero cleaned detections after cuts never
+    # produces this file and so is "pending" forever; harmless, it just
+    # reruns (and no-ops) on every resume.
+    packing_pending="$(pending_healpix_tasks "$BASE/HealpixDetectionCatalog/cleaned_detections_hp{hp:05d}.fits")"
+fi
+submit_stage "$REPO/dev/multiPacking_pmsculptor.sh" "$packing_pending" 32
 
 echo "== Stage 4: proper motion fit =="
-submit_stage "$REPO/dev/multiPM_pmsculptor.sh" \
-    "$(pending_healpix_tasks \
+if [ "$force_repack" -eq 1 ] || [ -n "$packing_pending" ]; then
+    echo "  packing changed this run; reprocessing all $n_healpix healpix"
+    pm_pending="$(seq -s, 0 $(( n_healpix - 1 )))"
+else
+    pm_pending="$(pending_healpix_tasks \
         "$BASE/PMCatalog/real_PM_hp{hp:05d}.fits" \
-        "$BASE/PMCatalog/injection_PM_hp{hp:05d}.fits")" 32
+        "$BASE/PMCatalog/injection_PM_hp{hp:05d}.fits")"
+fi
+submit_stage "$REPO/dev/multiPM_pmsculptor.sh" "$pm_pending" 32
 
 echo "Done. Outputs under $BASE"
