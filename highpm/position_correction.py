@@ -304,11 +304,12 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
         new_dec = matchedSkimGPRData["NEW_DEC"]
 
         n = len(matchedSkimGPRData)
-        xwin = np.empty(n, dtype="f8")
-        ywin = np.empty(n, dtype="f8")
-        dRAdColor = np.empty(n, dtype="f8")
-        dDECdColor = np.empty(n, dtype="f8")
+        xwin = np.zeros(n, dtype="f8")
+        ywin = np.zeros(n, dtype="f8")
+        dRAdColor = np.zeros(n, dtype="f8")
+        dDECdColor = np.zeros(n, dtype="f8")
         trapShiftMas = np.empty(n, dtype="f8")
+        singletonFlag = np.zeros(n, dtype="?")
 
         # One WCS per CCD: transform each CCD's whole row group at once instead
         # of calling toPix/toSky per detection.
@@ -328,6 +329,15 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
                 matchedSkimGPRData["XWIN_IMAGE"][iUse],
                 matchedSkimGPRData["YWIN_IMAGE"][iUse],
             )
+
+            if len(iUse) == 1:
+                # pixmappy's inverse() mishandles a length-1 array (the
+                # underlying `coord` projection squeezes it to a bare scalar,
+                # which then trips its scalar-vs-vector branching). A CCD
+                # with exactly one matched star is real but too rare to be
+                # worth a per-point fallback call -- flag it out instead.
+                singletonFlag[iUse] = True
+                continue
 
             x, y = wcs.toPix(new_ra[iUse], new_dec[iUse], c=centerColor[iUse])
 
@@ -360,7 +370,9 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
         tempData["TRAP_SHIFT_MAS"] = trapShiftMas
         # -100 is CCD57's parallel-trap sentinel (unreliable, not "small"), so
         # it must flag too, not just large positive shifts.
-        tempData["TRAP_FLAG"] = (trapShiftMas < 0) | (trapShiftMas > TRAP_SHIFT_FLAG_MAS)
+        tempData["TRAP_FLAG"] = (
+            (trapShiftMas < 0) | (trapShiftMas > TRAP_SHIFT_FLAG_MAS) | singletonFlag
+        )
 
     updatedSkimGPRData = rfn.merge_arrays(
         [matchedSkimGPRData, tempData],
