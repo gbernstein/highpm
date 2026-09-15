@@ -14,6 +14,8 @@
 AUXDIR=/data8/shared/decampm/PMSculptor/logs/pm
 source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 
+export DES_EXPOSURES=/home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5
+
 python /home2/vwetzell/gitrepos/highpm/scripts/fake_pipeline.py \
     --config /home2/vwetzell/gitrepos/highpm/config/config.yaml \
     --detections "/data8/shared/decampm/PMSculptor/HealpixDetectionCatalog/cleaned_detections_*.fits" \
