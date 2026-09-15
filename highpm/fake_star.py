@@ -145,7 +145,11 @@ def generate_fake_star_catalog(
 
     catalog = catalog[mask]
 
-    # Save catalog to FITS file
+    # Save catalog to FITS file. cfitsio's clobber=True doesn't reliably
+    # delete-and-recreate a file left over from a prior (e.g. crashed) run on
+    # NFS, so remove it ourselves first.
+    if os.path.exists(output_file):
+        os.remove(output_file)
     fitsio.write(output_file, catalog, clobber=True)
 
     print(f"Fake star catalog with {np.sum(mask)} stars written to {output_file}")
