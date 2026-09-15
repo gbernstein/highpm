@@ -315,6 +315,11 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
         # of calling toPix/toSky per detection.
         for iStart in range(len(starts) - 1):
             iUse = ccdnumArgsort[starts[iStart] : starts[iStart + 1]]
+            if len(iUse) == 0:
+                # An exposure with zero matched detections still produces one
+                # phantom empty group here (starts collapses to [0, 0] when
+                # ccdnumSort itself is empty) -- nothing to do for it.
+                continue
             ccdnum = int(matchedSkimGPRData["CCDNUM"][iUse[0]])
 
             wcs = maps.getDelveWCS(expnum, ccdnum)
