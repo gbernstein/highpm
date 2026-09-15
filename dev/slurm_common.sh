@@ -5,6 +5,13 @@
 source /home2/vwetzell/.bashrc
 conda activate pm
 
+# Without this, a failing python step doesn't abort the script and the batch
+# script's own exit code ends up 0 (from `finish`'s echo) regardless -- SLURM
+# then reports the task COMPLETED and the pipeline's sacct-based failure
+# checks never see the error. (Not `-u`: .bashrc/conda activate reference
+# unset vars and would break under it.)
+set -eo pipefail
+
 for lib in OMP OPENBLAS MKL NUMEXPR BLIS; do
     export ${lib}_NUM_THREADS=$SLURM_CPUS_PER_TASK
 done
