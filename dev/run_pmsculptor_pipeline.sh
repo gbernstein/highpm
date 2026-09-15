@@ -23,7 +23,7 @@ MAX_ARRAY_TASKS=1200  # QOSMaxSubmitJobPerUserLimit on this cluster
 source /home2/vwetzell/.bashrc
 conda activate pm
 
-mkdir -p "$BASE" "$BASE/logs/poscorr" "$BASE/logs/packing" "$BASE/logs/pm" "$POSCORR_OUT"
+mkdir -p "$BASE" "$BASE/logs/poscorr" "$BASE/logs/packing" "$BASE/logs/pm" "$POSCORR_OUT" "$BASE/PMCatalog"
 
 # Compresses a sorted comma-separated int list into SLURM array range syntax
 # (e.g. "0,1,2,3" -> "0-3"), since sbatch rejects a submission whose --array
