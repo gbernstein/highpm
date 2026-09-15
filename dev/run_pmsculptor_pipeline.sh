@@ -35,7 +35,7 @@ submit_batch() {
         echo "Submitting $(basename "$script") (array=$array_spec, mem=${mem_gb}gb)"
         set +e
         jobid=$(sbatch --parsable --wait --array="$array_spec" --mem="${mem_gb}gb" \
-            --export="ALL,POSCORR_CHUNK=${POSCORR_CHUNK:-}" "$script")
+            --export="ALL,POSCORR_CHUNK=${POSCORR_CHUNK:-},POSCORR_EXPOSURES_NPY=${POSCORR_EXPOSURES_NPY:-}" "$script")
         set -e
         # Only look at the array-task rows (12345_3), not their .batch/.extern steps.
         oom_tasks=$(sacct -j "$jobid" --noheader --parsable2 --format=JobID,State \
@@ -84,19 +84,18 @@ submit_stage() {
     done
 }
 
-# Prints comma-separated chunk indices (0..n_pc-1) whose position-correction
-# output is still missing one or more exposures.
-pending_poscorr_tasks() {
+# Writes exposures still missing position-correction output to
+# POSCORR_EXPOSURES_NPY and prints how many there are.
+write_pending_exposures() {
     python -c "
 import glob, re
 import numpy as np
 exposures = np.load('$EXPOSURES_NPY')
-chunk = $POSCORR_CHUNK
 done = {int(re.search(r'(\d+)\.fits\$', f).group(1))
         for f in glob.glob('$POSCORR_OUT/position_corrected_*.fits')}
-pending = [i // chunk for i in range(0, len(exposures), chunk)
-           if not all(int(e) in done for e in exposures[i:i + chunk])]
-print(','.join(map(str, pending)))
+pending = np.array([e for e in exposures if int(e) not in done])
+np.save('$POSCORR_EXPOSURES_NPY', pending)
+print(len(pending))
 "
 }
 
@@ -122,23 +121,26 @@ python "$REPO/dev/build_pmsculptor_exposures.py" \
     --output-file "$EXPOSURES_NPY"
 
 n_exposures=$(python -c "import numpy as np; print(len(np.load('$EXPOSURES_NPY')))")
-# Chunk size must be big enough that ceil(n_exposures/chunk) fits in one
-# stage's worth of array batches (MAX_ARRAY_TASKS each); multiPositionCorrection
-# reads --chunk-size exposures per task via --index/--chunk-size.
-POSCORR_CHUNK=$(( (n_exposures + MAX_ARRAY_TASKS - 1) / MAX_ARRAY_TASKS ))
-n_pc=$(( (n_exposures + POSCORR_CHUNK - 1) / POSCORR_CHUNK ))
-echo "$n_exposures exposures -> $n_pc position-correction array tasks (chunk=$POSCORR_CHUNK)"
 
 echo "== Stage 1: position correction =="
-poscorr_pending="$(pending_poscorr_tasks)"
-submit_stage "$REPO/dev/multiPositionCorrection_pmsculptor.sh" "$poscorr_pending" 4
-# If any exposure was newly position-corrected this run, already-packed
-# healpix may have had incomplete input last time -- reprocess all of them
-# rather than trusting per-file "already done" checks for stages 3-4.
-if [ -n "$poscorr_pending" ]; then
-    force_repack=1
-else
+POSCORR_EXPOSURES_NPY="$BASE/pmsculptor_exposures_pending.npy"
+n_pending=$(write_pending_exposures)
+if [ "$n_pending" -eq 0 ]; then
+    echo "  all $n_exposures exposures already position-corrected, skipping"
     force_repack=0
+else
+    # Chunk size must be big enough that ceil(n_pending/chunk) fits in one
+    # stage's worth of array batches (MAX_ARRAY_TASKS each); multiPositionCorrection
+    # reads --chunk-size exposures per task via --index/--chunk-size, indexing
+    # into POSCORR_EXPOSURES_NPY (just the pending exposures, not the full list).
+    POSCORR_CHUNK=$(( (n_pending + MAX_ARRAY_TASKS - 1) / MAX_ARRAY_TASKS ))
+    n_pc=$(( (n_pending + POSCORR_CHUNK - 1) / POSCORR_CHUNK ))
+    echo "$n_pending / $n_exposures exposures pending -> $n_pc position-correction array tasks (chunk=$POSCORR_CHUNK)"
+    submit_stage "$REPO/dev/multiPositionCorrection_pmsculptor.sh" "$(seq -s, 0 $(( n_pc - 1 )))" 4
+    # Already-packed healpix may have had incomplete input last time --
+    # reprocess all of them rather than trusting per-file "already done"
+    # checks for stages 3-4.
+    force_repack=1
 fi
 
 echo "== Stage 2: build healpix list from position-corrected exposures =="

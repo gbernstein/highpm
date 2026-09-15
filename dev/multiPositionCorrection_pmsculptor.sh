@@ -20,7 +20,7 @@ python /home2/vwetzell/gitrepos/highpm/scripts/positionCorrection.py \
     --output-path /data8/shared/decampm/PMSculptor/PositionCorrectedExposureCatalog/ \
     --des-exposures /home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5 \
     --processes 1 \
-    --exposures-npy /data8/shared/decampm/PMSculptor/pmsculptor_exposures.npy \
+    --exposures-npy "${POSCORR_EXPOSURES_NPY:-/data8/shared/decampm/PMSculptor/pmsculptor_exposures.npy}" \
     --index ${SLURM_ARRAY_TASK_ID} \
     --chunk-size "${POSCORR_CHUNK:?POSCORR_CHUNK must be exported by the submitting script}"
 
