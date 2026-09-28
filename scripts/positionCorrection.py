@@ -129,7 +129,7 @@ if __name__ == "__main__":
         # Extract 7-digit expnum immediately before the _<band>.fits suffix
         # and accept common DES bands [g,r,i,z].
         gpr_files = [
-            f for gpr_path in gpr_paths for f in glob(os.path.join(gpr_path, "gpr_*_*.fits"))
+            f for gpr_path in gpr_paths for f in glob(os.path.join(gpr_path, "gpr*_*.fits"))
         ]
         gpr_expnums = set()
         for f in gpr_files:

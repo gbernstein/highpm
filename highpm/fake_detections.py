@@ -393,6 +393,16 @@ def generate_fake_detections(
     for i, exp in enumerate(unique_observations["EXPNUM"]):
         for ccd in np.unique(ccdnum_arr[fov_masks[:, i], i]):
             sel = fov_masks[:, i] & (ccdnum_arr[:, i] == ccd)
+            if np.sum(sel) == 1:
+                # pixmappy's inverse() mishandles a length-1 array (the
+                # underlying `coord` projection squeezes it to a bare scalar,
+                # which then trips its scalar-vs-vector branching) -- see the
+                # same guard in position_correction.py. A CCD with exactly one
+                # fake landing on it is real but too rare to be worth a
+                # per-point fallback call, so drop it like a trapped detection
+                # instead of crashing.
+                trap_removed[sel, i] = True
+                continue
             wcs = maps.getDelveWCS(int(exp), int(ccd))
             x, y = wcs.toPix(ra_detections[sel, i], dec_detections[sel, i], c=trap_color[sel])
             trap_map = maps.getMap(maps.trapMapFor(int(exp), int(ccd)))
@@ -428,16 +438,21 @@ def generate_fake_detections(
     print("Detections dropped for blending with a real source (<1\"):", np.sum(candidate & blend_removed))
     print("Final detections:", np.sum(mask))
     per_star = mask.sum(axis=1)
-    print(
-        "Per-star detection count: mean=%.2f median=%d max=%d p95=%d p99=%d"
-        % (
-            per_star.mean(),
-            np.median(per_star),
-            per_star.max(),
-            np.percentile(per_star, 95),
-            np.percentile(per_star, 99),
+    if per_star.size == 0:
+        # No fake stars were injected in this healpix at all (density * area
+        # rounded down to 0) -- nothing to summarize per-star.
+        print("Per-star detection count: n/a (0 fake stars)")
+    else:
+        print(
+            "Per-star detection count: mean=%.2f median=%d max=%d p95=%d p99=%d"
+            % (
+                per_star.mean(),
+                np.median(per_star),
+                per_star.max(),
+                np.percentile(per_star, 95),
+                np.percentile(per_star, 99),
+            )
         )
-    )
 
     # import matplotlib.pyplot as plt
 

@@ -1,0 +1,22 @@
+# Known extended/bright sources whose detections should be masked out of the
+# proper-motion pipeline (see highpm.cat_reader.exclusion_region_mask,
+# wired into clean_cat via config['exclusion_regions_file']).
+#
+# Each entry defines an on-sky exclusion ellipse:
+#   name          : label only, not used by the code
+#   ra, dec       : ellipse center, J2000 degrees
+#   major_arcmin  : full-axis major diameter, arcmin
+#   minor_arcmin  : full-axis minor diameter, arcmin
+#   pa_deg        : position angle of the major axis, degrees East of North
+#
+# NGC 300: hp09797 (the healpixel it dominates) was found to produce no
+# fast_movers output, its detections instead being consumed by
+# spurious/blended sources across the resolved galaxy. SIMBAD basic data:
+# center 00:54:53.4465638304 -37:41:03.168402396, optical diameter
+# 20.89'/13.49', PA=114 deg.
+- name: NGC300
+  ra: 13.722694016
+  dec: -37.684213445
+  major_arcmin: 20.89
+  minor_arcmin: 13.49
+  pa_deg: 114.0

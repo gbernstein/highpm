@@ -18,7 +18,7 @@ python /home2/vwetzell/gitrepos/highpm/scripts/fastcheck_pipeline.py \
     --detections "/home2/vwetzell/ProperMotion/HealpixDetectionCatalog/cleaned_detections_*.fits" \
     --index ${SLURM_ARRAY_TASK_ID} \
     --healpix-npy /home2/vwetzell/ProperMotion/PMToDo.npy \
-    --runs real,fake,overlay \
+    --runs real,injection \
     --output-name /home2/vwetzell/ProperMotion/PMCatalog/
 
 finish

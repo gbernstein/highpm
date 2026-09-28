@@ -215,6 +215,16 @@ def count_seasons(mjd, dt):
     return seasons
 
 
+def count_seasons_gap(mjd, gap_days):
+    """Number of observing seasons, where a new season starts only when two
+    consecutive detections are more than gap_days apart. Unlike count_seasons
+    (whose window is anchored at each season's first detection, so a run
+    longer than the window is split in two), a run with no long break is one
+    season however long it lasts."""
+    mjd_sorted = np.sort(mjd)
+    return 1 + int(np.sum(np.diff(mjd_sorted) > gap_days))
+
+
 def fit5d(
     indices,
     cat,

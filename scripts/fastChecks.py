@@ -4,7 +4,7 @@ Command-line wrapper to run the fast-checker against a catalog of detections.
 This script:
 - Loads a YAML config
 - Reads and cleans the detections catalog (FITS)
-- Reads a catalog of objects to check (FITS) with columns: XI, ETA, RA, DEC, PMRA, PMDEC, PARALLAX
+- Reads a catalog of objects to check (FITS) with columns: xi, eta, ra, dec, pmra, pmdec, parallax (a *_movers extension)
 - Runs highpm.fast_checks.fast_checker
 - Writes results to FITS using highpm.fits_writer.output_fits
 
@@ -17,9 +17,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from functools import partial
-
-import numpy.lib.recfunctions as rfn
 
 # Ensure project root (package parent) is importable when running this script directly
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -31,60 +28,10 @@ import fitsio
 import numpy as np
 import yaml
 
+from highpm.cat_reader import clean_cat
 from highpm.fast_checks import fast_checker
 from highpm.fits_writer import output_fits
-from highpm.pmfit import fit5d
-
-# Only the columns the fast checker + fitter actually touch (fast_checks,
-# modest.new_modest_mover, pmfit.fit5d/err2cov). Reading just these avoids
-# loading/copying the full ~1 GB detection catalog.
-FASTCHECK_COLUMNS = [
-    "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
-    "BEST_RA_ERR", "BEST_DEC_ERR", "BEST_RA_DEC_CORR", "BAND",
-    "COLOR", "COLOR_SOURCE",
-    "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
-]
-
-
-def _read_fastcheck_cat(path):
-    # Force column order (fitsio returns file order) and pack so the detections
-    # and injection arrays share an identical dtype for np.concatenate.
-    arr = fitsio.read(path, columns=FASTCHECK_COLUMNS, ext=1)
-    return rfn.repack_fields(arr[FASTCHECK_COLUMNS])
-
-
-def _validate_config(config: dict):
-    missing: list[str] = []
-    # Fitting block requirements
-    if "fitting" not in config:
-        missing.append("fitting")
-    else:
-        for k in (
-            "time_sep",
-            "minSeasons",
-            "chisqClip",
-            "reducedChisqMax",
-            "parallax_prior",
-            "color_prior",
-            "colorFrac",
-            "pm_prior",
-        ):
-            if k not in config["fitting"]:
-                missing.append(f"fitting.{k}")
-
-    # Core/global requirements used elsewhere
-    for k in ("n_detections", "mjd_ref"):
-        if k not in config:
-            missing.append(k)
-
-    # Fast-check specific
-    if "fastcheck" not in config or "search_radius" not in config["fastcheck"]:
-        # We'll allow the wrapper to provide a default; don't fail here, just warn via return
-        pass
-
-    if missing:
-        raise ValueError("Missing required config keys: " + ", ".join(missing))
-
+from highpm.pm_setup import build_fitter, read_pm_cat, validate_config
 
 def _validate_fastcat_columns(arr: np.ndarray):
     required = ["xi", "eta", "ra", "dec", "pmra", "pmdec", "parallax"]
@@ -102,10 +49,14 @@ def run_fast_checks(
     output_prefix: str | None = None,
     search_radius_arcsec: float | None = None,
     injection_file: str | None = None,
+    cores: int | None = None,
 ) -> int:
     # Load config
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+
+    if cores is not None:
+        config["cores"] = int(cores)
 
     # Search radius is in arcsec throughout (trees/queries use 3600*XI coords).
     if "fastcheck" not in config:
@@ -116,7 +67,7 @@ def run_fast_checks(
     if "search_radius" not in config["fastcheck"]:
         config["fastcheck"]["search_radius"] = 1.0  # arcsec
 
-    _validate_config(config)
+    validate_config(config)
 
     if not (np.isin("ra0", config) or np.isin("dec0", config)):
         from highpm.cat_reader import read_cat_header
@@ -128,24 +79,24 @@ def run_fast_checks(
 
     # Load detections (only the columns the checker/fitter need).
     print(f"Loading detections: {detections_path}")
-    cat = _read_fastcheck_cat(detections_path)
+    cat = read_pm_cat(detections_path)
 
     if injection_file is not None:
         print(f"Loading injected fake stars from: {injection_file}")
-        injected_stars = _read_fastcheck_cat(injection_file)
+        injected_stars = read_pm_cat(injection_file)
         cat = np.concatenate([cat, injected_stars])
         print(f"Catalog size after adding injections: {len(cat)}")
 
 
     print(f"Detections loaded: {len(cat)}")
 
-    # completeness_cat = fitsio.read(
-    #     "/home/vwetzell/gitrepos/highpm/data/y6a1c.exposures.completeness.fits"
-    # )
-
-    # cleanmask = clean_cat(cat, completeness_cat, 0.1)
-    cat_idx = np.arange(len(cat))  # [cleanmask]
-    # cat = cat[cleanmask]
+    # Same cleaning (and exposure thinning) as scripts/PM.py, so the search
+    # runs over the detections PM actually used and cat_idx maps back to the
+    # same rows of the input catalog.
+    cleanmask = clean_cat(cat, config)
+    cat_idx = np.arange(len(cat))[cleanmask]
+    raw_cat = cat  # uncleaned, for the stationary-counterpart guard
+    cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
 
     # Load fast catalog to check
@@ -168,7 +119,12 @@ def run_fast_checks(
             print("This may be expected if no modest movers were found for that fit.")
             print("Continuing without this modest movers extension.")
 
-    slow_cat = np.concatenate(slow_cat)
+    slow_cat = np.concatenate(slow_cat) if slow_cat else None
+    # PM.py only writes fast_movers when it found candidates, so a healpixel
+    # with none has no extension: nothing to check, not an error.
+    if "fast_movers" not in [h.get_extname().lower() for h in fitsio.FITS(fastcat_path)]:
+        print(f"No fast_movers extension in {fastcat_path}; nothing to check.")
+        return 0
     fast_cat = fitsio.read(fastcat_path, ext="fast_movers")
     _validate_fastcat_columns(fast_cat)
     print(f"Fast-check objects loaded: {len(fast_cat)}")
@@ -178,26 +134,17 @@ def run_fast_checks(
         overwrite = True
         print("Overwriting existing fastcheck extensions from fastcat.")
 
-    # Build fitter from config
-    fit_cfg = config["fitting"]
-    part_fit5d = partial(
-        fit5d,
-        time_sep=fit_cfg["time_sep"],
-        minSeasons=fit_cfg["minSeasons"],
-        chisqClip=fit_cfg["chisqClip"],
-        reducedChisqMax=fit_cfg["reducedChisqMax"],
-        parallax_prior=fit_cfg["parallax_prior"],
-        color_prior=fit_cfg["color_prior"],
-        colorFrac=fit_cfg["colorFrac"],
-        pm_prior=fit_cfg["pm_prior"],
-    )
+    # Same fitter configuration as PM.py
+    part_fit5d = build_fitter(config)
 
     # Run fast checker
     print(
-        "Running fast checker with search radius (deg):",
+        "Running fast checker with search radius (arcsec):",
         config["fastcheck"]["search_radius"],
     )
-    pm_arr = fast_checker(cat, fast_cat, slow_cat, part_fit5d, config)
+    pm_arr = fast_checker(
+        cat, fast_cat, slow_cat, part_fit5d, config, raw_cat=raw_cat, cat_idx=cat_idx
+    )
 
     if pm_arr is None or len(pm_arr) == 0:
         print("No fast-check movers found.")
@@ -229,7 +176,7 @@ def main():
         "fastcat",
         help=(
             "Path to a FITS table of objects to check. Must contain columns: "
-            "XI, ETA (deg), RA, DEC (deg), PMRA, PMDEC (arcsec/yr), PARALLAX (deg)."
+            "XI, ETA (deg), RA, DEC (deg), PMRA, PMDEC (mas/yr), PARALLAX (arcsec)."
         ),
     )
     parser.add_argument(
@@ -261,6 +208,13 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--cores",
+        type=int,
+        default=None,
+        help="Override config 'cores' (worker processes), e.g. $SLURM_CPUS_PER_TASK.",
+    )
+
     args = parser.parse_args()
     # try:
     if True:
@@ -271,6 +225,7 @@ def main():
             args.output_prefix,
             args.search_radius_arcsec,
             args.injection_file,
+            args.cores,
         )
     # except Exception as e:
     #     print(f"Error: {e}")

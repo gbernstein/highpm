@@ -21,14 +21,18 @@ from glob import glob
 import numpy as np
 
 
-def _intersect_exposures(skims_path: str, gpr_path: str) -> np.ndarray:
-    skim_files = glob(os.path.join(skims_path, "D*.fits"))
-    skim_expnums = {
+def _skimmed_expnums(skims_path: str) -> set:
+    return {
         int(m.group(1))
-        for f in skim_files
+        for f in glob(os.path.join(skims_path, "D*.fits"))
         if (m := re.search(r"(\d{8})(?=_)", os.path.basename(f)))
     }
-    gpr_files = glob(os.path.join(gpr_path, "gpr_*_*.fits"))
+
+
+def _intersect_exposures(skims_path: str, gpr_path: str) -> np.ndarray:
+    skim_files = glob(os.path.join(skims_path, "D*.fits"))
+    skim_expnums = _skimmed_expnums(skims_path)
+    gpr_files = glob(os.path.join(gpr_path, "gpr*_*.fits"))  # gpr_* and GPR2's gprx_*
     gpr_expnums = {
         int(m.group(1))
         for f in gpr_files

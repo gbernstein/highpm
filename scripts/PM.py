@@ -25,61 +25,8 @@ from highpm.cat_reader import clean_cat
 from highpm.fast import fast_movers
 from highpm.fits_writer import output_fits
 from highpm.modest import new_modest_fitter
-from highpm.pmfit import fit5d
+from highpm.pm_setup import build_fitter, read_pm_cat, validate_config
 from highpm.utils import detections_for_removal
-
-# Only the columns clean_cat + the modest/fast fitters (pmfit.fit5d/err2cov)
-# actually touch. Reading just these avoids loading/copying the full ~1 GB
-# detection catalog. FLAGS/IMAFLAGS_ISO are the extras clean_cat needs on top of
-# the fit columns.
-PM_COLUMNS = [
-    "XI", "ETA", "MJD", "PAR_XI", "PAR_ETA", "EXPNUM",
-    "BEST_RA_ERR", "BEST_DEC_ERR", "BEST_RA_DEC_CORR", "BAND",
-    "COLOR", "COLOR_SOURCE",
-    "SPREAD_MODEL", "SPREADERR_MODEL", "DXI_DCOLOR", "DETA_DCOLOR",
-    "FLAGS", "IMAFLAGS_ISO", "TRAP_FLAG",
-]
-
-
-def _read_pm_cat(path):
-    # Force column order (fitsio returns file order) and pack so the detections
-    # and injection arrays share an identical dtype for np.concatenate.
-    # TRAP_FLAG is absent from pre-reprocessing catalogs and from fake-star
-    # injections (which can't have a real charge-trap shift), so it's read
-    # only when present and defaulted to False (not flagged) otherwise.
-    available = fitsio.FITS(path)[1].get_colnames()
-    has_trap = "TRAP_FLAG" in available
-    columns = PM_COLUMNS if has_trap else [c for c in PM_COLUMNS if c != "TRAP_FLAG"]
-    arr = fitsio.read(path, columns=columns, ext=1)
-    if not has_trap:
-        arr = rfn.append_fields(arr, "TRAP_FLAG", np.zeros(len(arr), dtype="?"), usemask=False)
-    return rfn.repack_fields(arr[PM_COLUMNS])
-
-
-def _validate_config(config: dict):
-    missing = []
-    if "fitting" not in config:
-        missing.append("fitting")
-    else:
-        if "pm_prior" not in config["fitting"]:
-            config["fitting"]["pm_prior"] = None
-        for k in (
-            "time_sep",
-            "minSeasons",
-            "chisqClip",
-            "reducedChisqMax",
-            "parallax_prior",
-            "color_prior",
-            "colorFrac",
-            "pm_prior",
-        ):
-            if k not in config["fitting"]:
-                missing.append(f"fitting.{k}")
-    if "n_modests" not in config:
-        missing.append("n_modests")
-    if missing:
-        raise ValueError("Missing required config keys: " + ", ".join(missing))
-
 
 def run_pm(
     config_path: str,
@@ -90,7 +37,7 @@ def run_pm(
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    _validate_config(config)
+    validate_config(config)
 
     if not (np.isin("ra0", config) or np.isin("dec0", config)):
         from highpm.cat_reader import read_cat_header
@@ -101,11 +48,11 @@ def run_pm(
         config["dec0"] = cat_header["dec0"]
 
     print(f"Loading catalog: {catname}")
-    cat = _read_pm_cat(catname)
+    cat = read_pm_cat(catname)
 
     if injection_file is not None:
         print(f"Loading injected fake stars from: {injection_file}")
-        injected_stars = _read_pm_cat(injection_file)
+        injected_stars = read_pm_cat(injection_file)
         cat = np.concatenate([cat, injected_stars])
         print(f"Catalog size after adding injections: {len(cat)}")
 
@@ -116,20 +63,7 @@ def run_pm(
     cat = cat[cleanmask]
     print(f"Detections after cleaning: {len(cat)}")
 
-    fitting = config["fitting"]
-
-    part_fit5d = partial(
-        fit5d,
-        time_sep=fitting["time_sep"],
-        minSeasons=fitting["minSeasons"],
-        t_season=fitting["t_season"],
-        chisqClip=fitting["chisqClip"],
-        reducedChisqMax=fitting["reducedChisqMax"],
-        parallax_prior=fitting["parallax_prior"],
-        color_prior=fitting["color_prior"],
-        colorFrac=fitting["colorFrac"],
-        pm_prior=fitting["pm_prior"],
-    )
+    part_fit5d = build_fitter(config)
 
     n_modests = int(config["n_modests"])
     fit_detection_arr = np.zeros((n_modests, len(cat)), dtype=bool)

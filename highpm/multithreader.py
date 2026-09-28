@@ -1,5 +1,5 @@
 from functools import partial
-from multiprocessing import Pool
+from multiprocessing import get_context
 import numpy as np
 import tqdm
 
@@ -75,7 +75,13 @@ def multithreader(func, lol, cat, config, fitting=False):
     # process (traced via memray to a `recv()`-heavy background thread) even
     # though every individual Pool's own workload is small. close()+join()
     # lets each Pool fully release its resources before the next one starts.
-    pool = Pool(
+    # Explicit fork context: this module's _WCTX/_init_worker rely on
+    # fork's copy-on-write inheritance to avoid pickling `cat` per worker.
+    # Python 3.14 changed the Linux default start method to forkserver
+    # (gh-84559), which pickles `cat` through a helper-process pipe on every
+    # spawn instead -- fragile under load and the source of widespread
+    # BrokenPipeError/SemLock crashes when many array jobs ran concurrently.
+    pool = get_context("fork").Pool(
         processes=cores,
         initializer=_init_worker,
         initargs=(func, cat, config, fitting),

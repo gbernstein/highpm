@@ -4,6 +4,7 @@ import fitsio
 import healpy as hp
 import numpy as np
 import numpy.lib.recfunctions as rfn
+import yaml
 
 from highpm.gnomonic_converter import gnomonicJacobian
 
@@ -176,6 +177,76 @@ def healpix_membership_mask(ra, dec, ipix, nside=32, subside=16):
     return np.isin(detections_ipix, good_subpix)
 
 
+def load_exclusion_regions(filename):
+    """Loads a catalog of known problematic extended/bright sources whose
+    detections should be masked out of the pipeline (see
+    `exclusion_region_mask`).
+
+    Parameters
+    ----------
+    filename : str
+        Path to a YAML file containing a list of regions, each a mapping
+        with keys 'ra', 'dec' (ellipse center, J2000 degrees),
+        'major_arcmin', 'minor_arcmin' (full-axis ellipse diameters), and
+        'pa_deg' (position angle of the major axis, degrees East of North).
+        See config/exclusion_regions.yaml.
+
+    Returns
+    -------
+    regions : list of dict
+    """
+    with open(filename, "r") as f:
+        regions = yaml.safe_load(f)
+    return regions or []
+
+
+def exclusion_region_mask(ra, dec, regions):
+    """Boolean mask, True for detections outside every exclusion ellipse.
+
+    Each region defines an on-sky ellipse (center RA/Dec, major/minor axis,
+    position angle East of North) around a known extended/bright source
+    (e.g. NGC 300) whose detections are unreliable for proper-motion work.
+    Applied directly in RA/Dec -- on the raw per-exposure detections, before
+    any per-healpixel gnomonic (xi, eta) projection -- so a single region
+    catalog masks the source correctly in every healpixel it overlaps,
+    rather than needing to be re-expressed in each healpixel's own tangent
+    frame. A flat-sky offset from each region's own center is used for the
+    point-in-ellipse test, which is exact enough at the few-tens-of-arcmin
+    scale these regions are defined at.
+
+    Parameters
+    ----------
+    ra, dec : array-like
+        Detection sky coordinates (e.g. BEST_RA/BEST_DEC), in degrees.
+    regions : list of dict
+        As returned by `load_exclusion_regions`.
+
+    Returns
+    -------
+    keepmask : np.ndarray of bool, shape (len(ra),)
+    """
+    ra = np.asarray(ra, dtype=float)
+    dec = np.asarray(dec, dtype=float)
+    keep = np.ones(ra.shape, dtype=bool)
+
+    for region in regions:
+        r_ra, r_dec = region["ra"], region["dec"]
+
+        east = (ra - r_ra) * np.cos(np.radians(r_dec))
+        north = dec - r_dec
+
+        pa = np.radians(region["pa_deg"])
+        along_major = north * np.cos(pa) + east * np.sin(pa)
+        along_minor = -north * np.sin(pa) + east * np.cos(pa)
+
+        a = region["major_arcmin"] / 60.0 / 2.0
+        b = region["minor_arcmin"] / 60.0 / 2.0
+
+        keep &= (along_major / a) ** 2 + (along_minor / b) ** 2 > 1.0
+
+    return keep
+
+
 def clean_healpix_detections(detections, ipix, nside=32, subside=16):
     """
     This function removes detections that are more than 'overlap' degrees away
@@ -305,5 +376,25 @@ def _demo_rotate_covariances_to_healpix_frame():
     print("rotate_covariances_to_healpix_frame self-check passed")
 
 
+def _demo_exclusion_region_mask():
+    """Self-check for exclusion_region_mask: a detection at the region's own
+    center is masked, one just past its minor-axis edge is kept, and the
+    mask is independent of which healpixel's detections it's applied to
+    (same RA/Dec, no tangent-point argument at all)."""
+    region = {
+        "ra": 13.722694016,
+        "dec": -37.684213445,
+        "major_arcmin": 20.89,
+        "minor_arcmin": 13.49,
+        "pa_deg": 114.0,
+    }
+    ra = np.array([region["ra"], region["ra"], region["ra"] + 5.0])
+    dec = np.array([region["dec"], region["dec"] + 1.0, region["dec"]])
+    keep = exclusion_region_mask(ra, dec, [region])
+    assert list(keep) == [False, True, True], keep
+    print("exclusion_region_mask self-check passed")
+
+
 if __name__ == "__main__":
     _demo_rotate_covariances_to_healpix_frame()
+    _demo_exclusion_region_mask()

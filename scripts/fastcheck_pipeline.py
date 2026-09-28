@@ -42,6 +42,9 @@ def main():
     parser.add_argument(
         "--search-radius-arcsec", type=float, default=None, help="Fast-check search radius."
     )
+    parser.add_argument(
+        "--cores", type=int, default=None, help="Override config 'cores' (worker processes)."
+    )
     parser.add_argument("--self-test", action="store_true", help="Run self-check and exit.")
     args = parser.parse_args()
 
@@ -87,6 +90,7 @@ def main():
             output_prefix=f"{base}{run}_hp{healpix:05d}",
             search_radius_arcsec=args.search_radius_arcsec,
             injection_file=injection,
+            cores=args.cores,
         )
 
     print("Done!")

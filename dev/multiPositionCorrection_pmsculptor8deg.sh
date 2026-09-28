@@ -1,0 +1,27 @@
+#!/usr/bin/zsh
+#SBATCH --job-name=PosCorrPMSculptor8deg
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=4gb
+#SBATCH --time=48:00:00
+#SBATCH --output=/data8/shared/decampm/PMSculptor_8deg_garyb/logs/poscorr/out_%a.log
+#SBATCH --error=/data8/shared/decampm/PMSculptor_8deg_garyb/logs/poscorr/err_%a.err
+#SBATCH -p low
+#SBATCH -q low
+#SBATCH --array=0-N          # N set by run_pmsculptor8deg_pipeline.sh (batched to <=1200 tasks)
+#SBATCH --exclude=node[01-12]
+#SBATCH --requeue
+
+AUXDIR=/data8/shared/decampm/PMSculptor_8deg_garyb/logs/poscorr
+source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
+
+python /home2/vwetzell/gitrepos/highpm/scripts/positionCorrection.py \
+    --skims-path "/data8/shared/decampm/[GRIZ]/" \
+    --gpr-path "/data8/shared/decampm/GPR2/CAT/[griz]/" \
+    --output-path /data8/shared/decampm/PMSculptor_8deg_garyb/PositionCorrectedExposureCatalog/ \
+    --des-exposures /home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5 \
+    --processes 1 \
+    --exposures-npy "${POSCORR_EXPOSURES_NPY:-/data8/shared/decampm/PMSculptor_8deg_garyb/pmsculptor8deg_exposures.npy}" \
+    --index ${SLURM_ARRAY_TASK_ID} \
+    --chunk-size "${POSCORR_CHUNK:?POSCORR_CHUNK must be exported by the submitting script}"
+
+finish

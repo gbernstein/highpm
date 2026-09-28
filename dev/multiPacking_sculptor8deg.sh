@@ -7,7 +7,7 @@
 #SBATCH --error=/home2/vwetzell/ProperMotion_Sculptor/packing_auxnew00_8deg/err_%a.err
 #SBATCH -p low
 #SBATCH -q low
-#SBATCH --array=0-M          # M = len(sculptor8deg_healpix.npy) - 1
+#SBATCH --array=0-81          # M = len(sculptor8deg_healpix.npy) - 1
 #SBATCH --exclude=node[01-12]
 
 AUXDIR=/home2/vwetzell/ProperMotion_Sculptor/packing_auxnew00_8deg

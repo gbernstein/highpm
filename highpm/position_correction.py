@@ -143,14 +143,14 @@ def getGPRFile(expnum, gprPath="./"):
     matches = [
         m
         for path in gprPaths
-        for m in glob.glob(os.path.join(path, f"gpr_*{expnum:07d}_*.fits"))
+        for m in glob.glob(os.path.join(path, f"gpr*_*{expnum:07d}_*.fits"))
     ]
     if not matches:
         # Fall back to legacy naming without band (older data sets)
         legacy = [
             m
             for path in gprPaths
-            for m in glob.glob(os.path.join(path, f"gpr_*{expnum:07d}.fits"))
+            for m in glob.glob(os.path.join(path, f"gpr*_*{expnum:07d}.fits"))
         ]
         if not legacy:
             # raise FileNotFoundError(

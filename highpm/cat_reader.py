@@ -8,7 +8,11 @@ import fitsio
 import numpy as np
 from astropy.time import Time
 
-from highpm.detection_packaging import load_exposure_radec
+from highpm.detection_packaging import (
+    exclusion_region_mask,
+    load_exclusion_regions,
+    load_exposure_radec,
+)
 from highpm.friends_of_friends import query_pairs_groups
 from highpm.gnomonic_converter import projectGnomonic
 from highpm.pmfit import error_size
@@ -156,6 +160,10 @@ def clean_cat(catname, config=None, completeness_cat=None, completeness_threshol
         if these columns exist. If not, skips this cut and prints a warning.
     - 'TRAP_FLAG' column is False, if the column exists. If not, skips this
         cut and prints a warning.
+    - If `config['exclusion_regions_file']` is set, drops detections falling
+        inside any known-problematic-source ellipse it lists, in RA/Dec (see
+        `highpm.detection_packaging.exclusion_region_mask`), skipped with a
+        warning if 'BEST_RA'/'BEST_DEC' are missing.
     - If `config['max_exposures_per_month']` is set, caps exposures per
         colocated-pointing cluster per calendar month (see
         `thin_exposures_by_pointing`).
@@ -220,6 +228,16 @@ def clean_cat(catname, config=None, completeness_cat=None, completeness_threshol
         cleanmask &= ~catname["TRAP_FLAG"]
     except (KeyError, ValueError):
         print("No Trap Flag cleaning...")
+
+    exclusion_regions_file = None if config is None else config.get("exclusion_regions_file")
+    if exclusion_regions_file is not None:
+        try:
+            regions = load_exclusion_regions(exclusion_regions_file)
+            cleanmask &= exclusion_region_mask(
+                catname["BEST_RA"], catname["BEST_DEC"], regions
+            )
+        except (KeyError, ValueError):
+            print("No exclusion-region cleaning (missing BEST_RA/BEST_DEC)...")
 
     max_exp_per_month = None if config is None else config.get("max_exposures_per_month")
     if max_exp_per_month is not None:

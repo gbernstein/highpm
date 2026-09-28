@@ -114,7 +114,7 @@ def main():
             density_config.setdefault("ra0", cat_header["ra0"])
             density_config.setdefault("dec0", cat_header["dec0"])
             wanted = ["FLAGS", "IMAFLAGS_ISO", "SPREAD_MODEL", "SPREADERR_MODEL",
-                      "TRAP_FLAG", "EXPNUM", "MJD",
+                      "TRAP_FLAG", "EXPNUM", "MJD", "BEST_RA", "BEST_DEC",
                       "BEST_RA_ERR", "BEST_DEC_ERR", "BEST_RA_DEC_CORR"]
             available = fitsio.FITS(catalog)[1].get_colnames()
             clean_cols = fitsio.read(

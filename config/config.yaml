@@ -16,6 +16,8 @@ max_exposures_per_month: 5 # Cap exposures used per colocated-pointing cluster p
 pointing_linklength_arcmin: 10.0 # Friends-of-friends linking length, in arcmin, used to cluster exposure pointings for max_exposures_per_month thinning above.
 exposures_file: null # Path to a pixmappy DELVE exposures table (delveExposures.hdf5, or an old y6a1-style FITS table) providing each EXPNUM's true pointing RA/Dec ('ra'/'dec' columns, or pixmappy v2's 'pole' = [ra, dec]), used for the pointing clustering above. Required only if max_exposures_per_month is set; defaults to $DES_EXPOSURES if unset.
 
+exclusion_regions_file: config/exclusion_regions.yaml # Path to a YAML catalog of known problematic extended/bright sources (e.g. NGC 300), each defining an on-sky exclusion ellipse in RA/Dec. Applied once in clean_cat, directly against each detection's BEST_RA/BEST_DEC (no per-healpixel projection needed), after the catalog is read in for PM.py/fastChecks.py/fake_pipeline.py. Set to null to disable.
+
 modest:
   linklength: 0.5 # Maximum link length in arcseconds
   min_dt: 0.8 # Minimum time difference in years
@@ -46,16 +48,17 @@ fast:
   pair_budget: null # Target raw pairlength-pair count; if set, season_sample_frac is auto-lowered on the fly to land near this budget. e.g. 20000000. The frac actually used is recorded in the output FITS header (season_sample_frac_used, season_raw_pairs_est).
 
 fastcheck:
-  search_radius: 1.0 # Search radius in arcseconds
+  search_radius: 1.0 # Search radius in arcseconds around each fast mover's predicted (PM + parallax) track
   slow_pm_threshold: 50 # Proper motion threshold in mas/yr to consider a source as slow
-  pairlength: 60.0 # Maximum pair length in arcseconds
-  linklength: 2.0 # Maximum link length in arcseconds
-  min_pairs: 4 # Minimum number of pairs to consider a group
-  min_sep: 0.01 # Minimum separation in arcseconds
-  max_sep: 20.0 # Maximum separation in arcseconds
-  eps: 5.0 # DBSCAN epsilon value
-  min_dt: 1.6 # Minimum time difference in years
-  shared_pairs: 0.51 # Maximum fraction of shared pairs to consider a group
+  cluster: true # If true (default), cluster each star's matched detections (4D DBSCAN, new_modest_mover mode="fastcheck") and fit the PM-consistent subsets instead of every match
+  min_gap_seasons: null # If set, drop fits with fewer gap-separated seasons than this (consecutive detections > fitting.t_season apart start a new season); null = off
+  stationary_min_hits: null # If set, drop fits with at least this many unfit raw (uncleaned) detections from distinct exposures within stationary_radius of a fit detection and >= stationary_min_dt years from it; null = off
+  stationary_radius: 0.25 # Arcsec; covers a stationary source's scatter
+  stationary_min_dt: 2.5 # Years; = stationary_radius / 0.1"/yr, so movers faster than 100 mas/yr have left the spot
+  eps: 5.0 # DBSCAN epsilon (used when cluster is true)
+  min_dt: 1.6 # Minimum time difference in years between pair members (used when cluster is true)
+  min_pairs: 4 # Minimum pairs for a DBSCAN core point (used when cluster is true)
+  shared_pairs: 0.51 # Maximum fraction of shared pairs in a cluster (used when cluster is true)
 
 static_check:
   linklength: 0.5 # Maximum link length in arcseconds
