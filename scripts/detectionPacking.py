@@ -46,10 +46,24 @@ def _radec_from_table(tab):
     return expnum, ra, dec
 
 
-def _load_exposures(path):
-    from astropy.table import Table
-
-    return _radec_from_table(Table.read(path))
+def _parallax_factors(tab, expnum, ra0, dec0):
+    """(PAR_XI, PAR_ETA) per detection: minus the observatory's ICRS position
+    (AU) projected onto the (xi, eta) tangent basis at (ra0, dec0) -- the same
+    convention as highpm.position_correction.sky2bestSky, but about the
+    healpixel center (the fit's frame) instead of the GPR tangent point.
+    """
+    col = {c.lower(): c for c in tab.colnames}
+    tab_expnum = np.array(tab[col["expnum"]], dtype="i8")
+    obs = np.array(tab[col["obsicrs"]], dtype="f8")  # (N, 3)
+    order = np.argsort(tab_expnum)
+    idx = order[np.searchsorted(tab_expnum, expnum, sorter=order)]
+    assert np.all(tab_expnum[idx] == expnum), "detection EXPNUM missing from exposure table"
+    ra0, dec0 = np.radians(ra0), np.radians(dec0)
+    e_xi = np.array([-np.sin(ra0), np.cos(ra0), 0.0])
+    e_eta = np.array(
+        [-np.cos(ra0) * np.sin(dec0), -np.sin(ra0) * np.sin(dec0), np.cos(dec0)]
+    )
+    return -obs[idx] @ e_xi, -obs[idx] @ e_eta
 
 
 def _self_test():
@@ -60,7 +74,15 @@ def _self_test():
     for t in (fits_like, hdf5_like):
         e, r, d = _radec_from_table(t)
         assert list(e) == [1, 2] and list(r) == [10.0, 20.0] and list(d) == [-30.0, -40.0]
-    print("self-test ok: ra/dec read from both ra/dec and pole schemas")
+
+    # Observatory along +x (ra=0, dec=0): no parallax shift at the (0, 0)
+    # tangent point; at (90, 0) it's -obs . e_xi = -(-1) = +1 in xi.
+    par_tab = Table({"expnum": [7, 3], "obsicrs": [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]})
+    px, pe = _parallax_factors(par_tab, np.array([7, 7, 3]), 0.0, 0.0)
+    assert np.allclose(px, [0.0, 0.0, 0.0]) and np.allclose(pe, [0.0, 0.0, -1.0])
+    px, pe = _parallax_factors(par_tab, np.array([7]), 90.0, 0.0)
+    assert np.allclose(px, [1.0]) and np.allclose(pe, [0.0])
+    print("self-test ok: ra/dec schemas and parallax factors")
 
 
 if __name__ == "__main__":
@@ -147,7 +169,10 @@ if __name__ == "__main__":
     else:
         healpix = args.healpix
 
-    expnum, expra, expdec = _load_exposures(args.exposures_file)
+    from astropy.table import Table
+
+    exposure_table = Table.read(args.exposures_file)
+    expnum, expra, expdec = _radec_from_table(exposure_table)
 
     exposures = get_exposures_near_healpix(
         healpix, expra, expdec, expnum, nside=args.nside
@@ -176,8 +201,11 @@ if __name__ == "__main__":
     def row_filter(data):
         # Same three cuts as clean_err/clean_snr/clean_healpix_detections, applied
         # per-file so rows outside this healpixel never get held in memory
-        # alongside the rest of a dense pixel's overlapping exposures.
+        # alongside the rest of a dense pixel's overlapping exposures. MJD <= 0
+        # drops exposures positionCorrection wrote before it started skipping
+        # those missing from the exposure table (old files carry MJD = -1).
         err_ok = (data["BEST_RA_ERR"] > 0.0) & (data["BEST_DEC_ERR"] > 0.0)
+        err_ok &= data["MJD"] > 0.0
         snr_ok = (data["FLUX_PSF"] / data["FLUXERR_PSF"]) >= args.snr_threshold
         healpix_ok = healpix_membership_mask(
             data["BEST_RA"], data["BEST_DEC"], healpix, nside=args.nside, subside=args.subside
@@ -195,6 +223,13 @@ if __name__ == "__main__":
     ra0, dec0 = get_healpix_center(healpix, nside=args.nside)
 
     detections = rotate_covariances_to_healpix_frame(detections, ra0, dec0)
+
+    # PAR_XI/PAR_ETA came out of positionCorrection in the GPR tangent frame;
+    # recompute them about the healpixel center, the frame XI/ETA and the
+    # rotated covariance are in (and fake_detections' parallax factors use).
+    detections["PAR_XI"], detections["PAR_ETA"] = _parallax_factors(
+        exposure_table, detections["EXPNUM"], ra0, dec0
+    )
 
     xi, eta, dxi, deta = projectGnomonic(
         detections["BEST_RA"],

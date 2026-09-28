@@ -248,13 +248,16 @@ def clean_cat(catname, config=None, completeness_cat=None, completeness_threshol
         expnum = expnum.tolist()
         pointing_xi = dict(zip(expnum, xi.tolist()))
         pointing_eta = dict(zip(expnum, eta.tolist()))
-        cleanmask &= thin_exposures_by_pointing(
-            catname,
-            max_exp_per_month,
-            pointing_xi,
-            pointing_eta,
-            config.get("pointing_linklength_arcmin", 5.0),
-        )
+        # Thin (and rank exposures) on only the detections that survived the
+        # cuts above -- the same set the modest/fast movers will see.
+        if cleanmask.any():
+            cleanmask[cleanmask] = thin_exposures_by_pointing(
+                catname[cleanmask],
+                max_exp_per_month,
+                pointing_xi,
+                pointing_eta,
+                config.get("pointing_linklength_arcmin", 5.0),
+            )
 
     return cleanmask
 

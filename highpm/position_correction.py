@@ -276,15 +276,17 @@ def sky2bestSky(matchedSkimGPRData, expnum, ra0, dec0):
     iExp = np.where(exposureTable["expnum"] == expnum)[0]
 
     if len(iExp) == 0:
-        print(f"**Warning**: Exposure number {expnum} not found in exposure table.")
-        mjd = -1
-        tempData["MJD"] = mjd
+        # No MJD/observatory position means no epoch to fit against; process_exposure
+        # catches this ValueError and skips the exposure (no output file).
+        raise ValueError(f"exposure {expnum} not found in exposure table")
 
     else:
         iExp = iExp[0]
         mjd = exposureTable["mjdmid"][iExp]
         observatory = exposureTable["obsicrs"][iExp]
 
+        # GPR-frame parallax factors; scripts/detectionPacking.py recomputes
+        # these about the healpixel center, the frame the fit runs in.
         tmpPar = np.dot(R_bl, observatory)
         parX = -tmpPar[0]
         parY = -tmpPar[1]
