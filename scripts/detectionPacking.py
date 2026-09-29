@@ -19,6 +19,7 @@ from highpm.detection_packaging import (
     get_exposures_near_healpix,
     get_healpix_center,
     healpix_membership_mask,
+    parallax_factors as _parallax_factors,
     rotate_covariances_to_healpix_frame,
 )
 from highpm.gnomonic_converter import projectGnomonic
@@ -44,26 +45,6 @@ def _radec_from_table(tab):
         pole = np.array(tab[col["pole"]], dtype="f8")  # (N, 2) = [ra, dec] deg
         ra, dec = pole[:, 0], pole[:, 1]
     return expnum, ra, dec
-
-
-def _parallax_factors(tab, expnum, ra0, dec0):
-    """(PAR_XI, PAR_ETA) per detection: minus the observatory's ICRS position
-    (AU) projected onto the (xi, eta) tangent basis at (ra0, dec0) -- the same
-    convention as highpm.position_correction.sky2bestSky, but about the
-    healpixel center (the fit's frame) instead of the GPR tangent point.
-    """
-    col = {c.lower(): c for c in tab.colnames}
-    tab_expnum = np.array(tab[col["expnum"]], dtype="i8")
-    obs = np.array(tab[col["obsicrs"]], dtype="f8")  # (N, 3)
-    order = np.argsort(tab_expnum)
-    idx = order[np.searchsorted(tab_expnum, expnum, sorter=order)]
-    assert np.all(tab_expnum[idx] == expnum), "detection EXPNUM missing from exposure table"
-    ra0, dec0 = np.radians(ra0), np.radians(dec0)
-    e_xi = np.array([-np.sin(ra0), np.cos(ra0), 0.0])
-    e_eta = np.array(
-        [-np.cos(ra0) * np.sin(dec0), -np.sin(ra0) * np.sin(dec0), np.cos(dec0)]
-    )
-    return -obs[idx] @ e_xi, -obs[idx] @ e_eta
 
 
 def _self_test():

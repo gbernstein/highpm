@@ -23,12 +23,15 @@ if _REPO_ROOT not in sys.path:
 # for exposures with no measurement. Built by scripts/build_completeness_table.py.
 COMPLETENESS_CAT_PATH = os.path.join(_REPO_ROOT, "data", "delve.exposures.completeness.fits")
 
+# Same exposure table detectionPacking.py takes via --exposures-file; its obsicrs
+# gives the parallax factors, so fakes share the real detections' PAR convention.
+EXPOSURES_PATH = os.path.expanduser("~/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5")
 
-from astropy.coordinates import solar_system_ephemeris, EarthLocation, get_body
-from astropy.time import Time
+
+from astropy.table import Table
 
 from highpm.gnomonic_converter import gnomonic_plate2sky, projectGnomonic
-from highpm.detection_packaging import get_healpix_center
+from highpm.detection_packaging import get_healpix_center, parallax_factors
 from highpm.position_correction import TRAP_SHIFT_FLAG_MAS
 
 rng = np.random.default_rng(42)
@@ -41,25 +44,6 @@ GPR_ERROR_ARCSEC = 0.004
 # blended with it, not a clean injected recovery -- drop it (see the injection
 # run's blending cut in generate_fake_detections).
 BLEND_TOLERANCE_ARCSEC = 1.0
-
-
-def F_ra(ra_star, R_earth, ra_sun, dec_ecliptic):
-    F_ra = R_earth * np.sin(ra_sun) * np.cos(ra_star) * np.cos(
-        dec_ecliptic
-    ) + R_earth * np.sin(ra_star) * np.cos(ra_sun)
-    return F_ra
-
-
-def F_dec(ra_star, R_earth, ra_sun, dec_ecliptic, dec_star):
-    F_dec = R_earth * (
-        (
-            np.sin(dec_ecliptic) * np.cos(dec_star)
-            - np.cos(dec_ecliptic) * np.sin(ra_star) * np.sin(dec_star)
-        )
-        * np.sin(ra_sun)
-        - np.cos(ra_star) * np.sin(dec_star) * np.cos(ra_sun)
-    )
-    return F_dec
 
 
 def generate_errors(mags: np.ndarray) -> np.ndarray:
@@ -233,6 +217,7 @@ def generate_fake_detections(
     nside: int,
     output_file: str,
     reference_epoch: float = 57388.0,
+    exposures_file: str = EXPOSURES_PATH,
 ):
     """
     Generate fake detections for a given star catalog over multiple epochs.
@@ -260,30 +245,16 @@ def generate_fake_detections(
 
     unique_observations = np.unique(real_detections, axis=0)
 
-    loc = EarthLocation.of_site("Cerro Tololo Interamerican Observatory")
-
-    with solar_system_ephemeris.set("builtin"):
-        sol = get_body("sun", Time(unique_observations["MJD"], format="mjd"), loc)
-
     t = (unique_observations["MJD"] - reference_epoch) / 365.2425
 
-    params = np.array(
-        (
-            np.repeat(real_header["RA0"], len(unique_observations)),
-            sol.distance,
-            sol.ra * np.pi / 180,
-            sol.dec * np.pi / 180,
-            np.repeat(real_header["DEC0"], len(unique_observations)),
-        )
+    # Healpix-frame parallax factors (AU), identical to the real detections'
+    # PAR_XI/PAR_ETA, so injected and real stars obey the same parallax model.
+    f_ra, f_dec = parallax_factors(
+        Table.read(exposures_file),
+        unique_observations["EXPNUM"],
+        real_header["RA0"],
+        real_header["DEC0"],
     )
-
-    f_ra = np.zeros((len(unique_observations),))
-    f_dec = np.zeros((len(unique_observations),))
-    for i in range(len(unique_observations)):
-        f_ra[i] = F_ra(params[0, i], params[1, i], params[2, i], params[3, i])
-        f_dec[i] = F_dec(
-            params[0, i], params[1, i], params[2, i], params[3, i], params[4, i]
-        )
 
     fake_stars = fitsio.read(fake_star_catalog, ext=1)
 
