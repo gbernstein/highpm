@@ -123,9 +123,9 @@ def detections_for_removal(pm_arr, config):
     cov = np.linalg.inv(np.stack(pm_arr[:, 1]))
 
     pmra = 1000 * p_fits[:, 2]
-    pmra_err = 1000 * cov[:, 2, 2]
+    pmra_err = 1000 * np.sqrt(cov[:, 2, 2])
     pmdec = 1000 * p_fits[:, 3]
-    pmdec_err = 1000 * cov[:, 3, 3]
+    pmdec_err = 1000 * np.sqrt(cov[:, 3, 3])
 
     to_concat = [
         pm_arr[i][6]
