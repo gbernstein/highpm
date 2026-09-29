@@ -29,6 +29,7 @@ SCULPTOR_DEC=-33.709000
 REGION_RADIUS_DEG=8.0  # disc radius around Sculptor for the healpix list
 
 MAX_OOM_RETRIES=3
+MAX_PREEMPT_RETRIES=5
 MAX_ARRAY_TASKS=1200  # QOSMaxSubmitJobPerUserLimit on this cluster
 NSIDE=32              # must match build_pmsculptor8deg_exposures.py's default
 DISC_RADIUS_DEG=1.1   # ditto -- ~DES focal plane radius, used for touched-healpix lookup
@@ -51,12 +52,26 @@ compress_array_spec() {
     ' <<<"$1"
 }
 
-# Submits one array job (<=MAX_ARRAY_TASKS tasks) and waits on it (--requeue
-# in the .sh handles SLURM preemption on its own). If any task OOM'd,
-# resubmit just those tasks at double the memory, up to MAX_OOM_RETRIES times.
+# Prints the comma-separated array-task indices of $1 (a job id) whose State
+# matches the regex $2. Only looks at the array-task rows (12345_3), not
+# their .batch/.extern steps.
+tasks_in_state() {
+    sacct -j "$1" --noheader --parsable2 --format=JobID,State \
+        | awk -F'|' -v re="$2" '$1 ~ /^[0-9]+_[0-9]+$/ && $2 ~ re {print $1}' \
+        | sed -E 's/^[0-9]+_([0-9]+).*/\1/' \
+        | sort -un | paste -sd, -
+}
+
+# Submits one array job (<=MAX_ARRAY_TASKS tasks) and waits on it. If any
+# task OOM'd, resubmit just those tasks at double the memory, up to
+# MAX_OOM_RETRIES times. The low partition is PreemptMode=CANCEL, so
+# --requeue does nothing there: preempted (or node-failed) tasks are
+# resubmitted here at the same memory, up to MAX_PREEMPT_RETRIES times. Each
+# stage's script overwrites (or first removes) its own outputs, so a rerun
+# never builds on a partial file left by the cancelled attempt.
 submit_batch() {
     local script="$1" array_spec="$2" mem_gb="$3"
-    local attempt=0 jobid oom_tasks bad_tasks spec
+    local oom_attempt=0 preempt_attempt=0 jobid oom_tasks preempted_tasks bad_tasks spec
     while true; do
         spec=$(compress_array_spec "$array_spec")
         echo "Submitting $(basename "$script") (array=$spec, mem=${mem_gb}gb)"
@@ -64,29 +79,40 @@ submit_batch() {
         jobid=$(sbatch --parsable --wait --array="$spec" --mem="${mem_gb}gb" \
             --export="ALL,POSCORR_CHUNK=${POSCORR_CHUNK:-},POSCORR_EXPOSURES_NPY=${POSCORR_EXPOSURES_NPY:-}" "$script")
         set -e
-        # Only look at the array-task rows (12345_3), not their .batch/.extern steps.
-        oom_tasks=$(sacct -j "$jobid" --noheader --parsable2 --format=JobID,State \
-            | awk -F'|' '$1 ~ /^[0-9]+_[0-9]+$/ && $2 ~ /^OUT_OF_MEM/ {print $1}' \
-            | sed -E 's/^[0-9]+_([0-9]+).*/\1/' \
-            | sort -un | paste -sd, -)
+        oom_tasks=$(tasks_in_state "$jobid" '^OUT_OF_MEM')
+        preempted_tasks=$(tasks_in_state "$jobid" '^(PREEMPTED|NODE_FAIL|BOOT_FAIL)')
         bad_tasks=$(sacct -j "$jobid" --noheader --parsable2 --format=JobID,State \
-            | awk -F'|' '$1 ~ /^[0-9]+_[0-9]+$/ && $2 !~ /^(COMPLETED|OUT_OF_MEM)/ {print}')
+            | awk -F'|' '$1 ~ /^[0-9]+_[0-9]+$/ && $2 !~ /^(COMPLETED|OUT_OF_MEM|PREEMPTED|NODE_FAIL|BOOT_FAIL)/ {print}')
         if [ -n "$bad_tasks" ]; then
-            echo "ERROR: $(basename "$script") tasks finished in a non-COMPLETED, non-OOM state:" >&2
+            echo "ERROR: $(basename "$script") tasks finished in a non-COMPLETED, non-retryable state:" >&2
             echo "$bad_tasks" >&2
             return 1
         fi
-        if [ -z "$oom_tasks" ]; then
+        if [ -z "$oom_tasks" ] && [ -z "$preempted_tasks" ]; then
             return 0
         fi
-        attempt=$((attempt + 1))
-        if [ "$attempt" -gt "$MAX_OOM_RETRIES" ]; then
-            echo "ERROR: $(basename "$script") tasks [$oom_tasks] still OOMing after $MAX_OOM_RETRIES retries at ${mem_gb}gb" >&2
-            return 1
+        if [ -n "$oom_tasks" ]; then
+            oom_attempt=$((oom_attempt + 1))
+            if [ "$oom_attempt" -gt "$MAX_OOM_RETRIES" ]; then
+                echo "ERROR: $(basename "$script") tasks [$oom_tasks] still OOMing after $MAX_OOM_RETRIES retries at ${mem_gb}gb" >&2
+                return 1
+            fi
         fi
-        mem_gb=$((mem_gb * 2))
-        array_spec="$oom_tasks"
-        echo "Tasks [$array_spec] OOM'd; retrying at ${mem_gb}gb"
+        if [ -n "$preempted_tasks" ]; then
+            preempt_attempt=$((preempt_attempt + 1))
+            if [ "$preempt_attempt" -gt "$MAX_PREEMPT_RETRIES" ]; then
+                echo "ERROR: $(basename "$script") tasks [$preempted_tasks] still preempted after $MAX_PREEMPT_RETRIES retries" >&2
+                return 1
+            fi
+            echo "Tasks [$preempted_tasks] preempted/node-failed; resubmitting"
+        fi
+        # OOM'd and preempted tasks go out together in one array; OOM doubles
+        # the memory for all of them (harmless over-ask for the preempted ones).
+        if [ -n "$oom_tasks" ]; then
+            mem_gb=$((mem_gb * 2))
+            echo "Tasks [$oom_tasks] OOM'd; retrying at ${mem_gb}gb"
+        fi
+        array_spec="$(union_csv "$oom_tasks" "$preempted_tasks")"
     done
 }
 

@@ -19,6 +19,11 @@ source /home2/vwetzell/gitrepos/highpm/dev/slurm_common.sh
 
 export DES_EXPOSURES=/home2/vwetzell/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5
 
+# fits_writer.output_fits appends to an existing movers file, so a rerun
+# (e.g. after preemption) would stack onto a partial one -- start clean.
+HP=$(python -c "import numpy as np; print('%05d' % int(np.load('/data8/shared/decampm/PMSculptor_8deg_garyb/pmsculptor8deg_healpix.npy')[${SLURM_ARRAY_TASK_ID}]))")
+rm -f /data8/shared/decampm/PMSculptor_8deg_garyb/PMCatalog/{real,injection}_hp${HP}_fastcheck*.fits(N)
+
 python /home2/vwetzell/gitrepos/highpm/scripts/fastcheck_pipeline.py \
     --config /home2/vwetzell/gitrepos/highpm/config/config.yaml \
     --detections "/data8/shared/decampm/PMSculptor_8deg_garyb/HealpixDetectionCatalog/cleaned_detections_*.fits" \
