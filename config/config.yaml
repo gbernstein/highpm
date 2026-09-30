@@ -51,8 +51,8 @@ fastcheck:
   search_radius: 1.0 # Search radius in arcseconds around each fast mover's predicted (PM + parallax) track
   slow_pm_threshold: 50 # Proper motion threshold in mas/yr to consider a source as slow
   cluster: true # If true (default), cluster each star's matched detections (4D DBSCAN, new_modest_mover mode="fastcheck") and fit the PM-consistent subsets instead of every match
-  min_gap_seasons: null # If set, drop fits with fewer gap-separated seasons than this (consecutive detections > fitting.t_season apart start a new season); null = off
-  stationary_min_hits: null # If set, drop fits with at least this many unfit raw (uncleaned) detections from distinct exposures within stationary_radius of a fit detection and >= stationary_min_dt years from it; null = off
+  min_gap_seasons: 4 # Drop fits with fewer gap-separated seasons than this (consecutive detections > fitting.t_season apart start a new season); null = off. 4 is the value purity-tested on PMSculptor_8deg (2026-09-21)
+  stationary_min_hits: 2 # Drop fits with at least this many unfit raw (uncleaned) detections from distinct exposures within stationary_radius of a fit detection and >= stationary_min_dt years from it; null = off. 2 is the purity-tested value
   stationary_radius: 0.25 # Arcsec; covers a stationary source's scatter
   stationary_min_dt: 2.5 # Years; = stationary_radius / 0.1"/yr, so movers faster than 100 mas/yr have left the spot
   eps: 5.0 # DBSCAN epsilon (used when cluster is true)
