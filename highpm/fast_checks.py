@@ -86,7 +86,7 @@ def check_static_detections(cat, fast_check_pm_detections, config):
     )
     close_groups = friends_of_friends(close_friends)
 
-    mjd = cat["MJD"][fast_check_pm_detections] / 365.2524
+    mjd = cat["MJD"][fast_check_pm_detections] / 365.2425
 
     static_detections_mask = np.ones(len(fast_check_pm_detections), dtype=bool)
 
@@ -110,7 +110,7 @@ def check_static_detections(cat, fast_check_pm_detections, config):
     #     3600 * cat["XI"][fast_check_pm_detections],
     #     3600 * cat["ETA"][fast_check_pm_detections],
     #     s=5,
-    #     c=(cat["MJD"][fast_check_pm_detections] - config["mjd_ref"]) / 365.2524,
+    #     c=(cat["MJD"][fast_check_pm_detections] - config["mjd_ref"]) / 365.2425,
     #     cmap="viridis",
     # )
     # plt.axis("equal")
