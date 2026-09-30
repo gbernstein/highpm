@@ -448,8 +448,18 @@ def fit5d(
 
                 else:
                     p, *_, chisq, alpha = singleFit(
-                        xy, cov_xy, t, par_xy, parallax_prior=parallax_prior
+                        xy,
+                        cov_xy,
+                        t,
+                        par_xy,
+                        parallax_prior=parallax_prior,
+                        pm_prior=pm_prior,
                     )
+
+                # Report chi^2/dof of the final fit (6 params when the color
+                # term was solved), not the 5-param fit the acceptance cut used.
+                chisqTotal = np.sum(chisq)
+                dof = 2 * xy.shape[0] - (5 if use_fixed_color else 6)
 
                 band_n = {}
                 for band in bands:
