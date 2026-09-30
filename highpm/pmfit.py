@@ -446,6 +446,15 @@ def fit5d(
 
                         return None
 
+                    # The fitted term is a g-i offset from the color the
+                    # default-color (COLOR_SOURCE == -1) detections were
+                    # corrected at -- known-color rows have zero derivative.
+                    # Report the absolute color. With no default-color rows c
+                    # is prior-only (0), so fall back to the modal COLOR.
+                    unknown = temp_cat["COLOR_SOURCE"] == -1
+                    base = temp_cat["COLOR"][unknown] if np.any(unknown) else temp_cat["COLOR"]
+                    color = sps.mode(base).mode + color
+
                 else:
                     p, *_, chisq, alpha = singleFit(
                         xy,
