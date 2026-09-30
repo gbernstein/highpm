@@ -1,167 +1,91 @@
 """
-Build an augmented per-exposure completeness table.
+Build the per-exposure completeness table read by fake injection and real-star filtering.
 
-Measured (m50, k, c) come from y6a1c.exposures.positions.fits. For exposures
-that have a T_EFF (from all_desy6.csv) but no measured completeness, estimate
-(m50, k, c) from the t_eff relations fit in dev/TeffTesting.ipynb and flag them
-with estimated=True. Both fake-injection and real-star filtering read the result.
+Every exposure's curve comes from its own measured depth, via an S/N detection
+threshold (see scripts/measure_exposure_depth.py and scripts/calibrate_snr_threshold.py):
+
+    m50 = m1 - 2.5 log10(nu[band, tag])
+    k   = 1.814 / sqrt((1.814 / k0[band, tag])**2 + m1_ccd_std**2)
+    c   = c[band, tag]
+
+m1 is the exposure's median-CCD magnitude at S/N = 1 (zp and background noise from
+its skim), so exposure time, read noise, sky, seeing and transparency need no model.
+k broadens the calibrated single-CCD width by the exposure's CCD-to-CCD depth spread.
+tag is the processing campaign (DES or DELVE finalcut), which sets the threshold.
+
+Exposures with no zeropoint (outside gold coverage) or an uncalibrated tag are left
+out; fake_detections.py then gives them zero detection probability, with a warning.
 """
 
-import csv
 import os
 
-import numpy as np
 import fitsio
-import h5py
+import numpy as np
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
-MEASURED = os.path.join(DATA, "y6a1c.exposures.positions.fits")
-DESY6 = os.path.join(DATA, "all_desy6.csv")
-DELVE = os.path.expanduser("~/gitrepos/pixmappy/pixmappy/data/delveExposures.hdf5")
+DEPTH = os.path.join(DATA, "delve.exposures.depth.fits")
+THRESHOLD = os.path.join(DATA, "snr_threshold.fits")
+INJECTION = os.path.join(DATA, "y6a1c.exposures.positions.fits")
 OUT = os.path.join(DATA, "delve.exposures.completeness.fits")
 
-BANDS = ("g", "r", "i", "z")  # ponytail: Y unused by pipeline (band_idx is g/r/i/z)
-M50_SLOPE = 1.25  # physical mag-per-dex; only the intercept is fit (per TeffTesting.ipynb)
-
-
-def load_desy6(path):
-    """Return (expnum, band, t_eff, exptime) arrays for rows with a parseable T_EFF."""
-    exp, band, teff, exptime = [], [], [], []
-    with open(path) as f:
-        for row in csv.DictReader(f):
-            try:
-                t = float(row["T_EFF"])
-            except (ValueError, KeyError):
-                continue
-            exp.append(int(row["EXPNUM"]))
-            band.append(row["BAND"])
-            teff.append(t)
-            exptime.append(float(row["EXPTIME"]))
-    return (np.array(exp, "i8"), np.array(band, "U1"),
-            np.array(teff, "f8"), np.array(exptime, "f8"))
-
-
-def load_delve(path):
-    """Return (expnum, band, t_eff, exptime) from the DELVE astropy-table HDF5, if present."""
-    if not os.path.exists(path):
-        return (np.empty(0, "i8"), np.empty(0, "U1"), np.empty(0, "f8"), np.empty(0, "f8"))
-    with h5py.File(path, "r") as f:
-        ds = f["__astropy_table__"]  # only read the fields we need, not the nested ones
-        expnum = ds["expnum"][:].astype("i8")
-        band = np.char.decode(ds["band"][:]).astype("U1")  # S1 bytes -> str
-        teff = ds["t_eff"][:].astype("f8")
-        exptime = ds["exptime"][:].astype("f8")
-    return expnum, band, teff, exptime
-
-
-def gather_exposures():
-    """Union of exposure sources (DES Y6 csv + DELVE hdf5)."""
-    des, delve = load_desy6(DESY6), load_delve(DELVE)
-    return tuple(np.concatenate([des[i], delve[i]]) for i in range(4))
-
-
-def fit_band(m50, k, c, logt):
-    """m0 (fixed-slope intercept), k0, s (linear), median c for one band."""
-    m0 = np.mean(m50 - M50_SLOPE * logt)
-    k0, s = np.polyfit(logt, k, 1)[::-1]  # np.polyfit returns [s, k0]
-    return m0, k0, s, np.median(c)
+LOGISTIC_SIGMA = np.pi / np.sqrt(3)  # std of a unit logistic, ~1.814
 
 
 def build():
-    meas = fitsio.read(MEASURED, ext=1, columns=["expnum", "band", "m50", "k", "c"])
-    exp_src, band_src, teff_src, exptime_src = gather_exposures()
-    teff_by_exp = dict(zip(exp_src.tolist(), teff_src.tolist()))
-    measured_set = set(meas["expnum"].tolist())
+    depth = fitsio.read(DEPTH)
+    thr = fitsio.read(THRESHOLD)
+    cal = {(r["band"], r["tag"]): r for r in thr}
 
-    # Per-band t_eff -> (m50, k, c) fits from measured rows that also have a T_EFF.
-    coeffs = {}
-    for b in BANDS:
-        sel = meas["band"] == b
-        t = np.array([teff_by_exp.get(int(e), np.nan) for e in meas["expnum"][sel]])
-        ok = np.isfinite(t) & (t > 0)
-        coeffs[b] = fit_band(
-            meas["m50"][sel][ok], meas["k"][sel][ok], meas["c"][sel][ok],
-            np.log10(t[ok]),
-        )
+    has_depth = np.isfinite(depth["m1"])
+    has_cal = np.array([(b, t) in cal for b, t in zip(depth["band"], depth["tag"])])
+    d = depth[has_depth & has_cal]
 
-    # Output = all measured rows (estimated=False) + estimates for missing g/r/i/z.
-    out_exp = meas["expnum"].tolist()
-    out_band = list(meas["band"])
-    out_m50 = meas["m50"].tolist()
-    out_k = meas["k"].tolist()
-    out_c = meas["c"].tolist()
-    out_est = [False] * len(out_exp)
-    est_exptime = []  # exptime of each estimated row, for the extrapolation flag
+    nu = np.array([cal[(b, t)]["nu"] for b, t in zip(d["band"], d["tag"])])
+    k0 = np.array([cal[(b, t)]["k"] for b, t in zip(d["band"], d["tag"])])
+    c = np.array([cal[(b, t)]["c"] for b, t in zip(d["band"], d["tag"])])
+    spread = np.nan_to_num(d["m1_ccd_std"].astype(float))
 
-    seen = set(measured_set)  # dedup estimates across overlapping sources
-    for e, b, t, x in zip(exp_src.tolist(), band_src.tolist(),
-                          teff_src.tolist(), exptime_src.tolist()):
-        if e in seen or b not in BANDS or not (t > 0):
-            continue
-        seen.add(e)
-        m0, k0, s, cmed = coeffs[b]
-        lt = np.log10(t)
-        out_exp.append(e)
-        out_band.append(b)
-        out_m50.append(m0 + M50_SLOPE * lt)
-        out_k.append(k0 + s * lt)
-        out_c.append(cmed)
-        out_est.append(True)
-        est_exptime.append(x)
-
-    # Flag estimates whose exposure time is in the 5-95% tails. The fit sample is
-    # entirely 90 s, so extrapolation is really about exposure length differing from
-    # what the relation was calibrated on. ponytail: tails of the estimated exptime
-    # distribution; tighten if you'd rather cut against the fit sample's 90 s.
-    x_lo, x_hi = np.percentile(est_exptime, [5, 95]) if est_exptime else (0, np.inf)
-    out_ext = [False] * (len(out_exp) - len(est_exptime)) + [
-        (x < x_lo or x > x_hi) for x in est_exptime
-    ]
-
-    out = np.empty(len(out_exp), dtype=[
-        ("expnum", "i4"), ("band", "U1"),
-        ("m50", "f8"), ("k", "f8"), ("c", "f8"),
-        ("estimated", "?"), ("extrapolated", "?"),
+    out = np.empty(len(d), dtype=[
+        ("expnum", "i4"), ("band", "U1"), ("m50", "f8"), ("k", "f8"), ("c", "f8"),
+        ("tag", "U8"), ("exptime", "f4"), ("m1", "f8"), ("m1_ccd_std", "f4"),
     ])
-    out["expnum"] = out_exp
-    out["band"] = out_band
-    out["m50"] = out_m50
-    out["k"] = out_k
-    out["c"] = out_c
-    out["estimated"] = out_est
-    out["extrapolated"] = out_ext
-    return out, coeffs, (x_lo, x_hi)
+    out["expnum"], out["band"], out["tag"] = d["expnum"], d["band"], d["tag"]
+    out["exptime"], out["m1"], out["m1_ccd_std"] = d["exptime"], d["m1"], d["m1_ccd_std"]
+    out["m50"] = d["m1"] - 2.5 * np.log10(nu)
+    out["k"] = LOGISTIC_SIGMA / np.sqrt((LOGISTIC_SIGMA / k0) ** 2 + spread ** 2)
+    out["c"] = c
+    skipped = dict(no_depth=int((~has_depth).sum()), uncalibrated=int((has_depth & ~has_cal).sum()))
+    return out, thr, skipped
+
+
+def injection_check(out):
+    """S/N-model m50 vs. the injection-measured m50 of DES 90 s exposures, per band."""
+    inj = fitsio.read(INJECTION, ext=1, columns=["expnum", "band", "m50"])
+    _, i_out, i_inj = np.intersect1d(out["expnum"], inj["expnum"], return_indices=True)
+    print(f"  cross-check vs. {len(i_out)} injection-measured exposures (model - injection m50):")
+    for b in "griz":
+        s = out["band"][i_out] == b
+        r = out["m50"][i_out][s] - inj["m50"][i_inj][s]
+        mad = 1.4826 * np.median(np.abs(r - np.median(r)))
+        print(f"    {b}: median {np.median(r):+.3f}, robust std {mad:.3f}, n={s.sum()}")
 
 
 def main():
-    out, coeffs, (x_lo, x_hi) = build()
+    out, thr, skipped = build()
     fitsio.write(OUT, out, clobber=True)
-    n_est = int(out["estimated"].sum())
-    n_ext = int(out["extrapolated"].sum())
-    print(f"wrote {OUT}")
-    print(f"  {len(out)} rows: {len(out) - n_est} measured, {n_est} estimated "
-          f"({n_ext} extrapolated: exptime outside [{x_lo:.0f}s, {x_hi:.0f}s])")
-    for b in BANDS:
-        m0, k0, s, cmed = coeffs[b]
-        print(f"  {b}: m50={m0:.2f}+1.25*log10(teff)  k={k0:.2f}{s:+.2f}*log10(teff)  c={cmed:.3f}")
-    return out, coeffs
+    print(f"wrote {OUT}: {len(out)} exposures "
+          f"(skipped {skipped['no_depth']} without a depth, {skipped['uncalibrated']} with an uncalibrated tag)")
+    for r in thr:
+        print(f"  {r['band']} {r['tag']:6s} nu={r['nu']:.2f} k0={r['k']:.2f} c={r['c']:.3f}")
+    injection_check(out)
+    return out
 
 
 if __name__ == "__main__":
-    out, coeffs = main()
+    out = main()
 
-    # ponytail: one self-check that fails if the join/fit/flagging breaks.
-    meas = fitsio.read(MEASURED, ext=1, columns=["expnum"])
-    kept = out[~out["estimated"]]
-    assert len(kept) == len(meas), "measured rows dropped or duplicated"
-    assert np.array_equal(np.sort(kept["expnum"]), np.sort(meas["expnum"]))
-    est = out[out["estimated"]]
-    assert len(est) > 0, "no exposures were estimated"
-    assert np.all(np.isfinite(est["m50"])) and np.all((est["m50"] > 15) & (est["m50"] < 30))
-    assert not out["extrapolated"][~out["estimated"]].any(), "measured rows flagged extrapolated"
-    assert out["extrapolated"].sum() > 0, "no extrapolated exposures flagged"
-    for b in BANDS:
-        bsel = est["band"] == b
-        if bsel.any():
-            assert np.allclose(est["c"][bsel], coeffs[b][3])
+    # ponytail: one self-check that fails if the join or model breaks.
+    assert len(out) > 0 and len(np.unique(out["expnum"])) == len(out), "empty or duplicated rows"
+    assert np.all(np.isfinite(out["m50"])) and np.all((out["m50"] > 15) & (out["m50"] < 30))
+    assert np.all((out["k"] > 0) & (out["c"] > 0) & (out["c"] <= 1))
     print("self-check passed")

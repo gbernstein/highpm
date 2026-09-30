@@ -1,11 +1,16 @@
 """Per-exposure GPR - Gaia residual vs year for the healpixels saved by gpr_drift_other_healpix.py (ref stars)."""
-import sys
+import argparse
 import matplotlib.pyplot as plt
 import healpy as hp
 import numpy as np
 from plot_gpr_vs_gaia_per_exposure import fit_line, GAIA_REF_MJD, YEAR
 
-hps = [int(h) for h in sys.argv[1:]] or [4556, 3696, 4739, 3990, 4458, 4535]
+ap = argparse.ArgumentParser()
+ap.add_argument("healpix", type=int, nargs="*", default=[4556, 3696, 4739, 3990, 4458, 4535])
+ap.add_argument("--out", default="drift_other_healpix.png")
+ap.add_argument("--title", default="complete healpixels away from Sculptor")
+a = ap.parse_args()
+hps = a.healpix
 fig, axes = plt.subplots(2, len(hps) + 1, figsize=(3.6 * (len(hps) + 1), 7), sharex=True, sharey="row", squeeze=False)
 SCL = np.load("/data8/shared/decampm/drift/gpr_vs_gaia_per_exposure_ref.npy")
 sculptor = np.column_stack([SCL["mjd"], SCL["n"], SCL["dra"], SCL["dra_err"], SCL["ddec"], SCL["ddec_err"]])
@@ -36,6 +41,6 @@ for c, h in enumerate(hps + ["Sculptor"]):
             ax.set_title(f"{name} (n_exp={g.sum()})\n{cen}", fontsize=10)
         if r == 1:
             ax.set_xlabel("year")
-fig.suptitle("GPR reference stars vs Gaia, per-exposure median, complete healpixels away from Sculptor")
+fig.suptitle(f"GPR reference stars vs Gaia, per-exposure median, {a.title}")
 plt.tight_layout()
-plt.savefig("drift_other_healpix.png", dpi=150)
+plt.savefig(a.out, dpi=150)

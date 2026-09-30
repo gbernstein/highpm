@@ -85,9 +85,12 @@ if __name__ == "__main__":
     # placeholder zeros for PMRA/PMDEC/PARALLAX/RUWE instead of NaN, rather
     # than leaving them out -- those aren't real "PM=0" measurements, so a
     # RUWE cut alone lets them through (0 <= 1.4). Drop them explicitly.
+    # Any exactly-zero PM component is treated as a placeholder, not a measurement.
     two_param = (gaia["PMRA"] == 0) & (gaia["PMDEC"] == 0) & (gaia["PARALLAX"] == 0)
-    print(f"[gaia] dropping {two_param.sum()} / {len(gaia)} apparent 2-parameter (position-only) solutions")
-    gaia = gaia[~two_param]
+    zero_pm = (gaia["PMRA"] == 0) | (gaia["PMDEC"] == 0)
+    print(f"[gaia] dropping {zero_pm.sum()} / {len(gaia)} with PMRA or PMDEC exactly 0 "
+          f"({two_param.sum()} of them apparent 2-parameter solutions)")
+    gaia = gaia[~zero_pm]
 
     mover_coords = SkyCoord(ra=movers["ra"] * u.degree, dec=movers["dec"] * u.degree)
     gaia_coords = SkyCoord(ra=gaia["RA"] * u.degree, dec=gaia["DEC"] * u.degree)
@@ -136,9 +139,15 @@ if __name__ == "__main__":
               f"frac(|pull|<1)={frac1:.3f} (ideal 0.683), frac(|pull|<2)={frac2:.3f} (ideal 0.954), "
               f"frac(|pull|>5)={frac5:.4f}")
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    # Histograms on top; below each, half-height std and median panels sharing the G axis.
+    fig = plt.figure(figsize=(12, 11))
+    gs = fig.add_gridspec(2, 2, height_ratios=(2, 2), hspace=0.3)
+    hist_axes = [fig.add_subplot(gs[0, j]) for j in range(2)]
+    lower = [gs[1, j].subgridspec(2, 1, hspace=0.08) for j in range(2)]
+    std_axes = [fig.add_subplot(lower[j][0]) for j in range(2)]
+    mean_axes = [fig.add_subplot(lower[j][1], sharex=std_axes[j]) for j in range(2)]
 
-    for ax, pull, label in zip(axes[0], (pull_ra, pull_dec), ("pmra", "pmdec")):
+    for ax, pull, label in zip(hist_axes, (pull_ra, pull_dec), ("pmra", "pmdec")):
         rng = args.pull_range
         bins = np.linspace(-rng, rng, 121)
         rstd = robust_std(pull)
@@ -151,23 +160,36 @@ if __name__ == "__main__":
         ax.set_ylim(1e-5, 1)
         ax.set_xlabel(f"{label} pull " + r"$(\mu_{our}-\mu_{gaia})/\sqrt{\sigma_{our}^2+\sigma_{gaia}^2}$", fontsize=11)
         ax.set_ylabel("density")
-        ax.set_title(f"{label}: naive std={np.std(pull):.2f} (outlier-driven), robust std={rstd:.2f}, n={len(pull)}")
+        ax.set_title(f"{label}: naive std={np.std(pull):.2f} (outlier-driven),\nrobust std={rstd:.2f}, n={len(pull)}",
+                     fontsize=11)
         ax.legend(fontsize=9)
         ax.grid()
 
-    for ax, gmag, pull, label in zip(axes[1], (gmag_ra, gmag_dec), (pull_ra, pull_dec), ("pmra", "pmdec")):
+    def padded_ylim(ax, values, lo, hi):
+        """Default (lo, hi), widened only if some binned value falls outside it."""
+        finite = values[np.isfinite(values)]
+        if len(finite):
+            lo, hi = min(lo, finite.min() - 0.05), max(hi, finite.max() + 0.05)
+        ax.set_ylim(lo, hi)
+
+    for std_ax, mean_ax, gmag, pull, label in zip(std_axes, mean_axes, (gmag_ra, gmag_dec),
+                                                  (pull_ra, pull_dec), ("pmra", "pmdec")):
         centers, std, mean, n = binned_pull_std(gmag, pull, (12, 21, 37))
-        ax.plot(centers, std, "o-", color="steelblue", label="robust std")
-        ax.plot(centers, mean, "s--", color="darkorange", label="median (offset)")
-        ax.axhline(1.0, color="k", ls="--", lw=1.5)
-        ax.axhline(0.0, color="gray", ls=":", lw=1.0)
-        ax.set_xlabel("Gaia G magnitude", fontsize=11)
-        ax.set_ylabel(f"{label} pull std / mean")
-        ax.set_ylim(-1, max(3, np.nanmax(std) * 1.1 if np.any(np.isfinite(std)) else 3))
-        ax.legend(fontsize=9)
-        ax.grid()
+        std_ax.plot(centers, std, "o-", color="steelblue")
+        std_ax.axhline(1.0, color="k", ls="--", lw=1.5)
+        std_ax.set_ylabel(f"{label} pull\nrobust std")
+        padded_ylim(std_ax, std, 0.5, 1.2)
+        std_ax.tick_params(labelbottom=False)
+        std_ax.grid()
+
+        mean_ax.plot(centers, mean, "s-", color="darkorange")
+        mean_ax.axhline(0.0, color="k", ls="--", lw=1.5)
+        mean_ax.set_ylabel(f"{label} pull\nmedian")
+        padded_ylim(mean_ax, mean, -0.3, 0.3)
+        mean_ax.set_xlabel("Gaia G magnitude", fontsize=11)
+        mean_ax.grid()
 
     fig.suptitle(args.title, fontsize=14)
-    plt.tight_layout()
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.06, wspace=0.25)
     plt.savefig(args.out, dpi=300)
     print(f"Saved {args.out}")
