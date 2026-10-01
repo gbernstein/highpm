@@ -2,11 +2,20 @@
 Calibrate the S/N detection threshold that maps per-CCD depth (m1, the magnitude at
 S/N = 1 from scripts/measure_exposure_depth.py) to a completeness curve:
 
-    P(detected | m) = c / (1 + exp(k (m - m50))),   m50 = m1_ccd - 2.5 log10(nu)
+    P(detected | m) = c / (1 + exp(k (m - m50))),
+    m50 = m1_ccd - 2.5 log10(nu) - seeing_loss(fwhm, kernel)
 
 with nu, k and c fit per band and per processing tag (DES and DELVE finalcut use
-different detection thresholds). The truth catalog is DES Y6 Gold, so the fit uses
-exposures lying entirely in Y6 Gold, stratified by exposure time.
+different detection thresholds). seeing_loss (scripts/build_completeness_table.py) is
+the S/N a fixed Gaussian detection filter of FWHM kernel loses against the PSF-fit S/N
+behind m1, 2.5 log10((kernel^2 + fwhm^2) / (2 kernel fwhm)); kernel is fit only for
+KERNEL_TAGS. Both DES and DELVE finalcut lose depth at both seeing extremes, as a fixed
+filter does: DELVE's kernel is ~0.95" (~3.6 px), DES's ~1.7" (~6.4 px), so DES only shows
+the loss in its seeing tails (dev/snr_residual_correlations.png). DECADE has too few
+exposures and too narrow a seeing range to constrain one, so it gets no correction.
+The truth catalog is DES Y6 Gold, so the fit uses exposures lying entirely in Y6 Gold,
+stratified by exposure time, plus TAIL_PER_BIN extra exposures per band in each seeing
+tail of the KERNEL_TAGS (a random draw rarely reaches them, and they fix the kernel).
 
 Reference: isolated Y6 Gold point sources (EXT_MASH 0-1, FLAGS_GOLD == 0, no other
 gold object within ISOLATION_ARCSEC; EXT_MASH == 0 alone runs out below i ~ 23.5, short
@@ -19,7 +28,10 @@ that isn't a detection threshold and doesn't follow this logistic (see
 dev/check_star_class_loss.py).
 
 Gold magnitude errors and k are combined in quadrature (logistic sigma = 1.814/k), so
-the fitted k is that of exact magnitudes, as the fakes have.
+the fitted k is that of exact magnitudes, as the fakes have. Each exposure carries equal
+weight in the fit (stars weighted by 1 / its star count), as the table is used per
+exposure; star weighting lets dense fields, which here are mostly sharp-seeing ones,
+set the seeing term.
 
 Writes data/snr_threshold.fits and dev/snr_threshold_calibration.npz (per-exposure
 diagnostics: free logistic fits vs. the calibrated prediction).
@@ -38,6 +50,7 @@ from scipy.optimize import minimize
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from build_completeness_table import FWHM_DEFAULT, seeing_loss  # noqa: E402
 from measure_exposure_depth import NSIDE, SKIM, match  # noqa: E402
 
 REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -51,6 +64,9 @@ SHRINK = 0.97  # pull CCD polygons toward their centers to stay off the edges
 ISOLATION_ARCSEC = 2.0
 FIT_MAG = (18.0, 26.0)  # bright limit keeps saturation out of c
 EXPTIME_BINS = [0, 45, 75, 105, 160, 250, 1000]
+KERNEL_TAGS = ("DES", "DELVE")
+SEEING_TAILS = [(0.0, 1.3), (2.4, 9.0)]  # arcsec
+TAIL_PER_BIN = 20
 LOGISTIC_SIGMA = np.pi / np.sqrt(3)  # std of a unit logistic, ~1.814
 
 
@@ -112,22 +128,25 @@ def stars_for(args):
     m1 = row["m1_ccd"][ccd]
     ok = np.isfinite(m1) & np.isfinite(err)
     det = detected(e, b, ra[ok], dec[ok])
-    return e, mag[ok], err[ok], m1[ok], det
+    fwhm = np.full(ok.sum(), np.nan_to_num(row["fwhm"], nan=FWHM_DEFAULT))
+    return e, mag[ok], err[ok], m1[ok], det, fwhm
 
 
-def fit_threshold(mag, err, m1, det):
-    """Joint fit of (nu, k, c) over all stars of one band/tag."""
+def fit_threshold(mag, err, m1, det, fwhm, weight, fit_kernel):
+    """Joint fit of (nu, k, c[, kernel]) over all stars of one band/tag."""
     def unpack(p):
-        return 10 ** p[0], np.exp(p[1]), 1 / (1 + np.exp(-p[2]))
+        return 10 ** p[0], np.exp(p[1]), 1 / (1 + np.exp(-p[2])), (np.exp(p[3]) if fit_kernel else 0.0)
 
     def nll(p):
-        nu, k, c = unpack(p)
+        nu, k, c, kernel = unpack(p)
         keff = LOGISTIC_SIGMA / np.sqrt((LOGISTIC_SIGMA / k) ** 2 + err ** 2)
-        pr = np.clip(logistic(mag, m1 - 2.5 * np.log10(nu), keff, c), 1e-9, 1 - 1e-9)
-        return -np.sum(np.where(det, np.log(pr), np.log(1 - pr)))
+        m50 = m1 - 2.5 * np.log10(nu) - seeing_loss(fwhm, kernel)
+        pr = np.clip(logistic(mag, m50, keff, c), 1e-9, 1 - 1e-9)
+        return -np.sum(weight * np.where(det, np.log(pr), np.log(1 - pr)))
 
-    res = minimize(nll, [np.log10(5.0), np.log(6.0), 3.0], method="Nelder-Mead",
-                   options=dict(maxiter=4000, xatol=1e-5, fatol=1e-3))
+    p0 = [np.log10(5.0), np.log(6.0), 3.0] + ([np.log(1.2)] if fit_kernel else [])
+    res = minimize(nll, p0, method="Nelder-Mead",
+                   options=dict(maxiter=8000, xatol=1e-5, fatol=1e-3))
     return unpack(res.x)
 
 
@@ -149,6 +168,13 @@ def main():
                 sel = np.where(usable & (depth["band"] == b) & (depth["tag"] == tag)
                                & (depth["exptime"] >= lo) & (depth["exptime"] < hi))[0]
                 pick.extend(rng.permutation(sel)[: args.per_bin].tolist())
+    for b in "griz":
+        for tag in KERNEL_TAGS:
+            for lo, hi in SEEING_TAILS:
+                sel = np.where(usable & (depth["band"] == b) & (depth["tag"] == tag)
+                               & (depth["fwhm"] >= lo) & (depth["fwhm"] < hi))[0]
+                sel = np.setdiff1d(sel, pick)
+                pick.extend(rng.permutation(sel)[:TAIL_PER_BIN].tolist())
     sample = depth[np.sort(pick)]
     print(f"calibration sample: {len(sample)} exposures")
 
@@ -164,23 +190,27 @@ def main():
             rows = sample[(sample["band"] == b) & (sample["tag"] == tag)]
             if len(rows) == 0:
                 continue
-            mag, err, m1, det = (np.concatenate([stars[e][i] for e in rows["expnum"]])
-                                 for i in range(4))
-            nu, k, c = fit_threshold(mag, err, m1, det)
-            fits.append((b, tag, nu, k, c, len(rows), len(mag)))
-            print(f"{b} {tag:6s} nu={nu:.2f} k={k:.2f} c={c:.3f}  "
+            mag, err, m1, det, fwhm = (np.concatenate([stars[e][i] for e in rows["expnum"]])
+                                       for i in range(5))
+            n_e = [len(stars[e][0]) for e in rows["expnum"]]
+            weight = np.repeat(np.mean(n_e) / np.maximum(n_e, 1), n_e)
+            nu, k, c, kernel = fit_threshold(mag, err, m1, det, fwhm, weight, tag in KERNEL_TAGS)
+            fits.append((b, tag, nu, k, c, kernel, len(rows), len(mag)))
+            print(f"{b} {tag:6s} nu={nu:.2f} k={k:.2f} c={c:.3f} kernel={kernel:.2f}\"  "
                   f"({len(rows)} exposures, {len(mag)} stars)")
             for r in rows:
-                mg, er, m1s, dt = stars[r["expnum"]]
+                mg, er, m1s, dt, fw = stars[r["expnum"]]
                 m50, kf, cf = fit_free(mg, dt)
+                pred = r["m1"] - 2.5 * np.log10(nu) - seeing_loss(r["fwhm"], kernel)
                 diag.append((r["expnum"], b, tag, r["exptime"], r["m1"], r["m1_ccd_std"],
-                             r["m1"] - 2.5 * np.log10(nu), m50, kf, cf, len(mg)))
+                             r["fwhm"], pred, m50, kf, cf, len(mg)))
 
     out = np.array(fits, dtype=[("band", "U1"), ("tag", "U8"), ("nu", "f8"), ("k", "f8"),
-                                ("c", "f8"), ("n_exp", "i4"), ("n_star", "i8")])
+                                ("c", "f8"), ("kernel", "f8"), ("n_exp", "i4"),
+                                ("n_star", "i8")])
     fitsio.write(OUT, out, clobber=True)
     d = np.array(diag, dtype=[("expnum", "i4"), ("band", "U1"), ("tag", "U8"), ("exptime", "f4"),
-                              ("m1", "f8"), ("m1_ccd_std", "f4"), ("pred_m50", "f8"),
+                              ("m1", "f8"), ("m1_ccd_std", "f4"), ("fwhm", "f4"), ("pred_m50", "f8"),
                               ("emp_m50", "f8"), ("emp_k", "f8"), ("emp_c", "f8"), ("nref", "i8")])
     np.savez(DIAG, rows=d)
     print(f"wrote {OUT} and {DIAG}")

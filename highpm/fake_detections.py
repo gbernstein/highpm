@@ -19,8 +19,8 @@ _REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-# Augmented completeness catalog: measured (m50, k, c) plus t_eff-estimated rows
-# for exposures with no measurement. Built by scripts/build_completeness_table.py.
+# Per-exposure completeness (m50, k, c) from the measured exposure depth. Exposures
+# missing from it get zero detection probability. Built by scripts/build_completeness_table.py.
 COMPLETENESS_CAT_PATH = os.path.join(_REPO_ROOT, "data", "delve.exposures.completeness.fits")
 
 # Same exposure table detectionPacking.py takes via --exposures-file; its obsicrs
